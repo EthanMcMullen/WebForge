@@ -58,3 +58,8 @@ export function normalizePublicUrl(value: string): string | null {
 export function cleanSourceUrls(values: string[]): string[] {
   return [...new Set(values.map(normalizePublicUrl).filter((url): url is string => Boolean(url)))].slice(0, 20);
 }
+
+export const UpdateApiJobInput = z.object({
+  name: z.string().trim().min(3).max(100).optional(),
+  refresh_interval: z.number().int().min(15).max(525_600).nullable().optional(),
+}).strict().refine((input) => Object.keys(input).length > 0, "Provide at least one setting to update.");

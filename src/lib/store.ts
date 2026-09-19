@@ -192,3 +192,18 @@ export function saveApiRecords(jobId: string, records: ApiRecord[]): void {
     throw error;
   }
 }
+
+export function updateApiJobSettings(jobId: string, input: { name?: string; refreshInterval?: number | null }): ApiJob {
+  const job = getApiJob(jobId);
+  if (!job) throw new Error("API job not found.");
+  const now = new Date().toISOString();
+  database().prepare("UPDATE api_jobs SET name = ?, refresh_interval = ?, updated_at = ? WHERE id = ?")
+    .run(input.name ?? job.name, input.refreshInterval === undefined ? job.refreshInterval : input.refreshInterval, now, jobId);
+  const updated = getApiJob(jobId);
+  if (!updated) throw new Error("API job not found.");
+  return updated;
+}
+
+export function deleteApiJob(jobId: string): boolean {
+  return database().prepare("DELETE FROM api_jobs WHERE id = ?").run(jobId).changes > 0;
+}

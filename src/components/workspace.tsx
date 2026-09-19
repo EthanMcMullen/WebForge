@@ -24,7 +24,11 @@ export function Workspace() {
   const [jobs, setJobs] = useState<ApiJobResponse[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<WorkspaceView>("home");
-  const [settingsOpen, setSettingsOpen] = useState(false);
+const [settingsOpen, setSettingsOpen] = useState(false);
+  const [apiSettingsOpen, setApiSettingsOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editInterval, setEditInterval] = useState("");
+  const [deleteArmed, setDeleteArmed] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
   const [records, setRecords] = useState<ApiRecordResponse[]>([]);
   const [name, setName] = useState("");
@@ -164,6 +168,46 @@ export function Workspace() {
     }
   }
 
+  function openApiSettings() {
+    if (!selected) return;
+    setEditName(selected.name);
+    setEditInterval(selected.refresh_interval ? String(selected.refresh_interval) : "");
+    setDeleteArmed(false);
+    setApiSettingsOpen(true);
+  }
+
+  async function saveApiSettings() {
+    if (!selected || editName.trim().length < 3) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/jobs/${selected.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editName.trim(), refresh_interval: editInterval ? Number(editInterval) : null }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not save API settings.");
+      await loadJobs(selected.id);
+      setApiSettingsOpen(false);
+      setMessage("API settings saved.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save API settings."); }
+    finally { setBusy(false); }
+  }
+
+  async function removeApi() {
+    if (!selected || !deleteArmed) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/jobs/${selected.id}`, { method: "DELETE" });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not delete API.");
+      setApiSettingsOpen(false);
+      setSelectedId(null);
+      await loadJobs();
+      setView("library");
+      setMessage("API deleted.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not delete API."); }
+    finally { setBusy(false); }
+  }
   async function copyEndpoint(path: string) {
     await navigator.clipboard.writeText(`${window.location.origin}${path}`);
     setMessage("Endpoint copied to clipboard.");
@@ -213,7 +257,7 @@ const latestJob = jobs[0] || null;
             <div className="dashboard-hero"><div><div className="hero-eyebrow"><span className="sparkle">*</span> WEBFORGE WORKSPACE</div><h1>Your web data,<br /><em>ready to build with.</em></h1><p className="hero-copy">Create APIs from public websites, keep an eye on their latest runs, and ship the JSON your project needs.</p></div><button className="dashboard-create" onClick={() => setView("new")}><span>+</span><div><strong>Create an API</strong><small>Start from a plain-English request</small></div></button></div>
             <section className="dashboard-stats" aria-label="Workspace summary"><div className="stat-card panel"><span>ACTIVE APIS</span><strong>{jobs.length}</strong><small>{readyJobs.length} ready to use</small></div><div className="stat-card panel"><span>RECORDS CAPTURED</span><strong>{storedRecords}</strong><small>Across latest successful runs</small></div><div className="stat-card panel"><span>LAST UPDATED</span><strong>{latestJob ? new Date(latestJob.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "--"}</strong><small>{latestJob ? latestJob.name : "No APIs yet"}</small></div><div className="stat-card accent panel"><span>QUICK START</span><strong>New API</strong><button onClick={() => setView("new")}>Describe your data <span>&gt;</span></button></div></section>
             <section className="dashboard-grid"><div className="dashboard-panel panel"><div className="dashboard-heading"><div><div className="section-kicker">RECENT ACTIVITY</div><h2>What happened recently</h2></div><button className="text-button" onClick={() => setView("library")}>View library</button></div>{jobs.length ? <div className="activity-list">{jobs.slice(0, 4).map((job) => <button className="activity-item" key={job.id} onClick={() => { setSelectedId(job.id); setView("detail"); }}><span className={`activity-dot ${job.status}`} /><div><strong>{job.name}</strong><small>{statusLabels[job.status]}{job.run_summary ? ` / ${job.run_summary.saved_records} record${job.run_summary.saved_records === 1 ? "" : "s"} saved` : ""}</small></div><time>{new Date(job.updated_at).toLocaleDateString()}</time></button>)}</div> : <div className="dashboard-empty"><strong>Your activity will appear here.</strong><p>Create an API and WebForge will show its discovery and extraction results here.</p></div>}</div><div className="dashboard-panel panel"><div className="dashboard-heading"><div><div className="section-kicker">STARTER IDEAS</div><h2>Build something useful</h2></div></div><div className="template-list"><button onClick={() => { setUserRequest("Track product name, price, availability, and unit price for Golden Delicious apples at Walmart."); setView("new"); }}><span>01</span><div><strong>Product price tracker</strong><small>Prices and availability from retailers</small></div><b>&gt;</b></button><button onClick={() => { setUserRequest("Create an API for upcoming hackathons with name, location, application deadline, event dates, and official URL."); setView("new"); }}><span>02</span><div><strong>Event directory</strong><small>Dates, locations, and deadlines</small></div><b>&gt;</b></button><button onClick={() => { setUserRequest("Create an API for restaurant menus with restaurant name, item name, price, dietary tags, and source URL."); setView("new"); }}><span>03</span><div><strong>Menu monitor</strong><small>Items, prices, and dietary information</small></div><b>&gt;</b></button></div></div></section>
-          </> : <><div className="hero-eyebrow"><span className="sparkle">*</span> NATURAL LANGUAGE TO API</div><h1>Describe the data.<br /><em>Get a live API.</em></h1><p className="hero-copy">Describe public web data in plain English. WebForge plans the fields, finds sources, extracts records, and serves them as JSON.</p></>}
+          </> : view === "new" ? <><div className="hero-eyebrow"><span className="sparkle">*</span> NATURAL LANGUAGE TO API</div><h1>Describe the data.<br /><em>Get a live API.</em></h1><p className="hero-copy">Describe public web data in plain English. WebForge plans the fields, finds sources, extracts records, and serves them as JSON.</p></> : null}
           {view === "library" && <section className="library-panel panel">
             <div className="section-header"><div><div className="section-kicker">API LIBRARY</div><h2>Your APIs</h2><p>Choose an API to see its data, history, controls, and endpoints.</p></div><button className="primary-button" onClick={() => { setSelectedId(null); setView("new"); }}>New API</button></div>
             {jobs.length ? <div className="library-list">{jobs.map((job) => <button key={job.id} className="library-item" onClick={() => { setSelectedId(job.id); setView("detail"); }}><span className={`library-status ${job.status}`} /><div><strong>{job.name}</strong><small>{statusLabels[job.status]} / {Object.keys(job.schema).length || Object.keys(job.proposed_schema).length} fields</small></div><time>{new Date(job.updated_at).toLocaleDateString()}</time><b>View</b></button>)}</div> : <div className="empty-state"><strong>No APIs yet</strong><p>Create your first API from a simple request.</p><button className="primary-button" onClick={() => setView("new")}>Create an API</button></div>}
@@ -299,7 +343,8 @@ const latestJob = jobs[0] || null;
             </section>
 
             <section className="api-section panel"><div><div className="section-kicker">04 / API</div><h2>API endpoints</h2><p>Copy the records URL to use the extracted JSON.</p></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{recordsPath}</code><button onClick={() => void copyEndpoint(recordsPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy</button></div></div></section>
-            </>}
+            <section className="api-settings panel"><div><div className="section-kicker">05 / API SETTINGS</div><h2>Manage this API</h2><p>Rename it, set its refresh interval, or remove it from this workspace.</p></div><button className="ghost-button" onClick={openApiSettings}>Open settings</button></section>
+            {apiSettingsOpen && <section className="api-settings-editor panel" role="dialog" aria-modal="true" aria-label="API settings"><div className="settings-editor-heading"><div><div className="section-kicker">API SETTINGS</div><h2>{selected.name}</h2></div><button onClick={() => setApiSettingsOpen(false)} aria-label="Close API settings">x</button></div><label className="input-label" htmlFor="api-name">API NAME</label><input id="api-name" className="text-input" value={editName} onChange={(event) => setEditName(event.target.value)} /><label className="input-label settings-interval-label" htmlFor="api-interval">REFRESH INTERVAL <span>MINUTES / LEAVE BLANK FOR MANUAL</span></label><input id="api-interval" className="text-input interval-input" type="number" min="15" value={editInterval} onChange={(event) => setEditInterval(event.target.value)} placeholder="Manual" /><div className="settings-editor-actions"><button className="primary-button" onClick={() => void saveApiSettings()} disabled={busy || editName.trim().length < 3}>Save changes</button><button className={`danger-button ${deleteArmed ? "armed" : ""}`} onClick={() => deleteArmed ? void removeApi() : setDeleteArmed(true)} disabled={busy}>{deleteArmed ? "Click again to permanently delete" : "Delete API"}</button></div></section>}            </>}
           </>}
         </div>
       </main>
