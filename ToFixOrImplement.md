@@ -27,6 +27,7 @@ Completed:
 
 Still to do:
 
+- [ ] Handle likely source-name typos before a run is declared source-less. Confirmed case: a request for apples at `fresco canada` produced the query `Fresco Canada fresh apple price`, then 2 searches, 0 scrapes, 5 skipped results, and no records. A `FreshCo Canada apples price` search found a real FreshCo apple product page, and a direct Firecrawl scrape returned a product name and displayed price. Suggest the likely retailer correction to the user and give a clear discovery error; do not silently replace a named source.
 - [ ] Validate general extracted records against the original request, beyond source-title review, sparse-field checks, and the special numeric-price check. A scrapeable page can still be the wrong entity.
 - [ ] Keep internal evidence/identity fields separate from the public schema where the selected fields alone are insufficient to verify a record.
 - [ ] Save safe per-source diagnostic metadata for failed Firecrawl attempts. The old Walmart `no structured JSON` response cannot be diagnosed from persisted data alone.
