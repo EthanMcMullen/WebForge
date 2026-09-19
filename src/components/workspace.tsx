@@ -184,10 +184,23 @@ export function Workspace() {
       })
       .then((result) => { setJobs(result.jobs); setSelectedId(result.jobs[0]?.id || null); })
       .catch((error: Error) => setMessage(error.message));
-    void fetch("/api/config")
-      .then((response) => response.json())
-      .then((result: Config) => setConfig(result))
-      .catch(() => setMessage("Could not load configuration."));
+    const refreshConfig = () => {
+      void fetch("/api/config", { cache: "no-store" })
+        .then((response) => {
+          if (!response.ok) throw new Error("Could not load configuration.");
+          return response.json() as Promise<Config>;
+        })
+        .then(setConfig)
+        .catch(() => setMessage("Could not load configuration."));
+    };
+    const onVisibilityChange = () => { if (document.visibilityState === "visible") refreshConfig(); };
+    refreshConfig();
+    window.addEventListener("focus", refreshConfig);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", refreshConfig);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [accessState, loadJobs]);
 
   async function unlockWorkspace() {
@@ -458,7 +471,8 @@ export function Workspace() {
             {strategy === "provided_urls" && <div className="seed-block"><label className="input-label" htmlFor="sources">Sources</label><textarea id="sources" rows={3} value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="One public URL per line" /></div>}
             <label className="field-option"><input type="checkbox" checked={combineSources} onChange={(event) => setCombineSources(event.target.checked)} /><span><strong>Combine sources into one record</strong><small>Use multiple pages for one item, such as Apple specs and an independent benchmark.</small></span></label>
             <div className="interval-row"><label className="input-label" htmlFor="interval">Refresh</label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
-            <div className="composer-footer"><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready || !config?.database_ready}>{busy ? "Planning..." : "Propose fields"}</button></div>
+            <div className="composer-footer"><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready || !config?.database_ready}>{busy ? "Planning..." : "Propose fields"}</button>
+              {!config ? <span>Checking service settings...</span> : !config.database_ready ? <span>Add MONGODB_URI to the server and restart WebForge.</span> : !config.planner_ready ? <span>Add OPENAI_API_KEY to the server and restart WebForge.</span> : null}</div>
           </section>}
 
           {view === "detail" && selected && <>
