@@ -8,7 +8,11 @@ import type { ApiJob, ApiRecordData, SourceCandidate } from "../src/lib/types.ts
 
 const directory = mkdtempSync(join(tmpdir(), "webforge-pipeline-"));
 process.env.WEBFORGE_DB_PATH = join(directory, "test.sqlite");
-after(() => rmSync(directory, { recursive: true, force: true }));
+after(() => {
+  globalThis.webforgeDatabase?.close();
+  globalThis.webforgeDatabase = undefined;
+  rmSync(directory, { recursive: true, force: true });
+});
 
 const store = await import("../src/lib/store.ts");
 const { runApiJob } = await import("../src/lib/pipeline.ts");
