@@ -2,6 +2,7 @@ node_modules/
 .next/
 .data/
 .npm-cache/
+.env.local
 .env*
 !.env.example
 *.tsbuildinfo

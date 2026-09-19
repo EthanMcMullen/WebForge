@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { apiJobStatuses, toApiJobResponse, type ApiJob } from "../src/lib/types.ts";
+import { extractionJsonSchema, normalizeExtractedData, selectSourceUrls } from "../src/lib/extraction.ts";
 import { ApiRecordSchemaInput, CreateApiJobInput, cleanSourceUrls, normalizePublicUrl } from "../src/lib/validation.ts";
 
 test("API jobs support every pipeline lifecycle status", () => {
   assert.deepEqual(apiJobStatuses, [
-    "planning", "discovering", "scraping", "extracting", "storing", "ready", "failed",
+    "planning", "planned", "discovering", "scraping", "extracting", "storing", "ready", "failed",
   ]);
 });
 
@@ -63,4 +64,27 @@ test("API responses use the public snake_case contract", () => {
   assert.equal(response.refresh_interval, 1440);
   assert.deepEqual(response.source_strategy.search_queries, job.sourceStrategy.searchQueries);
   assert.equal("userRequest" in response, false);
+});
+
+
+test("extraction requests nullable typed fields and adds server provenance", () => {
+  const schema = { title: { type: "string" as const }, price: { type: "number" as const }, source_url: { type: "string" as const } };
+  const firecrawlSchema = extractionJsonSchema(schema);
+  assert.deepEqual(firecrawlSchema.required, ["title", "price"]);
+  assert.deepEqual(normalizeExtractedData({ title: "Laptop", price: null, extra: "ignored" }, schema, "https://example.com/item"), {
+    title: "Laptop", price: null, source_url: "https://example.com/item",
+  });
+  assert.throws(() => normalizeExtractedData({ title: "Laptop", price: "999" }, schema, "https://example.com/item"));
+});
+
+
+test("search results yield at most five unique public URLs", () => {
+  const results = [
+    { url: "https://example.com/one#section" },
+    { metadata: { sourceURL: "https://example.com/one" } },
+    { url: "http://localhost/private" },
+    { url: "https://example.com/two" },
+  ];
+  assert.deepEqual(selectSourceUrls(results), ["https://example.com/one", "https://example.com/two"]);
+  assert.deepEqual(selectSourceUrls(results, 1), ["https://example.com/one"]);
 });

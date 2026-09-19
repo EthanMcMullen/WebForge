@@ -47,7 +47,10 @@ export async function planApiJob(userRequest: string): Promise<ApiPlan> {
     model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
     instructions: [
       "Turn the user's public-web data request into a reusable API record schema.",
-      "Return a concise API name, one to nineteen fields, and one to five web search queries.",
+      "Return a concise API name, one to nineteen fields, and one to five focused web search queries.",
+      "Define one record as one individual page about an item, entity, or event. Return only fields needed for that record.",
+      "Search queries should find individual pages, not broad lists. If the user names a website, include its domain with site: in a query.",
+      "Never invent exact source URLs; search will provide real URLs.",
       "Use snake_case field keys and only string, number, integer, or boolean field types.",
       "Dates must be strings whose descriptions require ISO 8601 format.",
       "Do not add source_url; the platform adds that provenance field automatically.",

@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiJobResponse, SourceStrategyType } from "@/lib/types";
 
-type Config = { planner_ready: boolean; missing: string[] };
+type Config = { planner_ready: boolean; extraction_ready: boolean; missing: string[] };
+type ApiRecordResponse = { id: string; job_id: string; source_url: string; data: Record<string, string | number | boolean | null>; extracted_at: string };
 
 const statusLabels: Record<ApiJobResponse["status"], string> = {
   planning: "Planning",
+  planned: "Planned",
   discovering: "Discovering",
   scraping: "Scraping",
   extracting: "Extracting",
@@ -19,6 +21,7 @@ export function Workspace() {
   const [jobs, setJobs] = useState<ApiJobResponse[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [config, setConfig] = useState<Config | null>(null);
+  const [records, setRecords] = useState<ApiRecordResponse[]>([]);
   const [name, setName] = useState("");
   const [userRequest, setUserRequest] = useState("");
   const [strategy, setStrategy] = useState<SourceStrategyType>("automatic");
@@ -39,6 +42,14 @@ export function Workspace() {
     setJobs(result.jobs);
     setSelectedId((current) => preferredId || current || result.jobs[0]?.id || null);
   }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    void fetch(`/api/jobs/${selectedId}/records`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((result: { records?: ApiRecordResponse[] }) => setRecords(result.records || []))
+      .catch(() => setRecords([]));
+  }, [selectedId, jobs]);
 
   useEffect(() => {
     void fetch("/api/jobs", { cache: "no-store" })
@@ -76,9 +87,43 @@ export function Workspace() {
       const result = await response.json() as { job?: ApiJobResponse; error?: string };
       if (!response.ok || !result.job) throw new Error(result.error || "Could not create API job.");
       await loadJobs(result.job.id);
-      setMessage(result.job.status === "failed" ? result.job.error : "API job planned successfully.");
+      if (result.job.status === "failed") {
+        setMessage(result.job.error || "Planning failed.");
+        return;
+      }
+      if (!config?.extraction_ready) {
+        setMessage("API planned. Add FIRECRAWL_API_KEY to extract records.");
+        return;
+      }
+      const progress = window.setInterval(() => { void loadJobs(result.job!.id); }, 1500);
+      try {
+        const runResponse = await fetch(`/api/jobs/${result.job.id}/run`, { method: "POST" });
+        const runResult = await runResponse.json() as { job?: ApiJobResponse; error?: string };
+        await loadJobs(result.job.id);
+        setMessage(runResult.job?.error || runResult.error || (runResponse.ok ? "API records are ready." : "Extraction failed."));
+      } finally { window.clearInterval(progress); }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not create API job.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshJob() {
+    if (!selected) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const jobId = selected.id;
+      const progress = window.setInterval(() => { void loadJobs(jobId); }, 1500);
+      try {
+        const response = await fetch(`/api/jobs/${jobId}/refresh`, { method: "POST" });
+        const result = await response.json() as { job?: ApiJobResponse; error?: string };
+        await loadJobs(jobId);
+        setMessage(result.job?.error || result.error || (response.ok ? "Records refreshed." : "Refresh failed."));
+      } finally { window.clearInterval(progress); }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Refresh failed.");
     } finally {
       setBusy(false);
     }
@@ -91,6 +136,7 @@ export function Workspace() {
 
   const jobPath = selected ? `/api/jobs/${selected.id}` : "";
   const schemaPath = selected ? `/api/jobs/${selected.id}/schema` : "";
+  const recordsPath = selected ? `/api/jobs/${selected.id}/records` : "";
 
   return (
     <div className="shell">
@@ -105,22 +151,22 @@ export function Workspace() {
               <span className="dataset-dot" />
               <span className="dataset-text"><strong>{job.name}</strong><small>{statusLabels[job.status]}</small></span>
             </button>
-          )) : <p className="sidebar-empty">Your live API jobs will appear here.</p>}
+          )) : <p className="sidebar-empty">Your API jobs will appear here.</p>}
         </div>
-        <div className="sidebar-bottom"><div className={`connection-dot ${config?.planner_ready ? "on" : ""}`} /><span>{config?.planner_ready ? "Live planner ready" : "OpenAI key required"}</span></div>
+        <div className="sidebar-bottom"><div className={`connection-dot ${config?.planner_ready ? "on" : ""}`} /><span>{config?.planner_ready && config?.extraction_ready ? "OpenAI + Firecrawl ready" : `${config?.missing.join(", ") || "Keys"} required`}</span></div>
       </aside>
 
       <main className="main">
-        <header className="topbar"><div className="breadcrumbs">API JOBS <span>/</span> {selected ? selected.name.toUpperCase() : "NEW"}</div><div className="top-right"><span className="version">LIVE PLANNING</span><span className="avatar">WF</span></div></header>
+        <header className="topbar"><div className="breadcrumbs">API JOBS <span>/</span> {selected ? selected.name.toUpperCase() : "NEW"}</div><div className="top-right"><span className="version">LIVE API</span><span className="avatar">WF</span></div></header>
         {message && <div className="toast" role="status"><span>{message}</span><button onClick={() => setMessage(null)} aria-label="Dismiss">×</button></div>}
 
         <div className="content">
           <div className="hero-eyebrow"><span className="sparkle">✦</span> NATURAL LANGUAGE TO API</div>
-          <h1>Describe the data.<br /><em>Define the API job.</em></h1>
-          <p className="hero-copy">Every request is planned live into a validated schema and stored as the central job that later discovery, scraping, extraction, and refresh stages will use.</p>
+          <h1>Describe the data.<br /><em>Get a live API.</em></h1>
+          <p className="hero-copy">Describe public web data in plain English. WebForge plans the fields, finds sources, extracts records, and serves them as JSON.</p>
 
           <section className="composer panel">
-            <div className="panel-heading"><span className="step-number">01</span><div><h2>Create an API job</h2><p>No sample data or fixed templates. Each schema is planned from this request.</p></div></div>
+            <div className="panel-heading"><span className="step-number">01</span><div><h2>Create an API job</h2><p>Each request creates a schema and extracts live records from public pages.</p></div></div>
             <label className="input-label" htmlFor="job-name">NAME <span>OPTIONAL</span></label>
             <input id="job-name" className="text-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Generated automatically when omitted" />
             <label className="input-label request-label" htmlFor="request">USER REQUEST</label>
@@ -131,30 +177,35 @@ export function Workspace() {
                 <button type="button" className={strategy === "automatic" ? "mode active" : "mode"} onClick={() => setStrategy("automatic")}>Automatic discovery</button>
                 <button type="button" className={strategy === "provided_urls" ? "mode active" : "mode"} onClick={() => setStrategy("provided_urls")}>Provided URLs</button>
               </div>
-              <span className="mode-hint">Stored on the job; scraping is intentionally not active yet.</span>
+              <span className="mode-hint">Automatic discovery searches for up to five pages. You can also provide up to five URLs.</span>
             </div>
 
             {strategy === "provided_urls" && <div className="seed-block"><label className="input-label" htmlFor="sources">SOURCES <span>ONE PUBLIC URL PER LINE</span></label><textarea id="sources" rows={3} value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="https://example.com/source" /></div>}
-            <div className="interval-row"><label className="input-label" htmlFor="interval">REFRESH INTERVAL <span>MINUTES · OPTIONAL</span></label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
-            <div className="composer-footer"><span>Request → live plan → validated schema → stored API job</span><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready}>{busy ? "Planning…" : "Plan API job"}<span>↗</span></button></div>
+            <div className="interval-row"><label className="input-label" htmlFor="interval">REFRESH INTERVAL <span>MINUTES · OPTIONAL · MANUAL REFRESH IN MVP</span></label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
+            <div className="composer-footer"><span>Request → plan → Firecrawl → records → API</span><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready}>{busy ? "Creating API…" : "Create API"}<span>↗</span></button></div>
           </section>
 
           {selected && <>
             <section className="overview-grid">
               <div className="metric panel"><span>JOB</span><strong>{selected.name}</strong><small>{selected.id}</small></div>
               <div className="metric panel"><span>STATUS</span><strong className={`metric-status ${selected.status}`}>{statusLabels[selected.status]}</strong><small>Updated {new Date(selected.updated_at).toLocaleString()}</small></div>
-              <div className="metric panel"><span>SCHEMA FIELDS</span><strong>{Object.keys(selected.schema).length}</strong><small>Validated fields</small></div>
-              <div className="metric panel"><span>REFRESH</span><strong>{selected.refresh_interval ? `${selected.refresh_interval}m` : "Manual"}</strong><small>{selected.source_strategy.type.replaceAll("_", " ")}</small></div>
+              <div className="metric panel"><span>SCHEMA FIELDS</span><strong>{Object.keys(selected.schema).length}</strong><small>{records.length} records stored</small></div>
+              <div className="metric panel"><span>REFRESH</span><strong>{selected.refresh_interval ? `${selected.refresh_interval}m` : "Manual"}</strong><small>{selected.source_strategy.type.replaceAll("_", " ")} · manual run</small></div>
             </section>
 
             {selected.error && <div className="error-banner job-error">{selected.error}</div>}
 
             <section className="records-section panel">
-              <div className="section-header"><div><div className="section-kicker">02 / JOB DEFINITION</div><h2>Record schema</h2><p>Every future extracted record must satisfy this schema.</p></div></div>
+              <div className="section-header"><div><div className="section-kicker">02 / JOB DEFINITION</div><h2>Record schema</h2><p>Firecrawl extracts these fields from each source page.</p></div></div>
               <div className="table-wrap"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>{Object.entries(selected.schema).map(([key, field]) => <tr key={key}><td><code>{key}</code></td><td><span className="status-pill sample">{field.type}</span></td><td>{field.description || "—"}</td></tr>)}</tbody></table></div>
             </section>
 
-            <section className="api-section panel"><div><div className="section-kicker">03 / API JOB</div><h2>Job endpoints</h2><p>The record endpoint will be added with the extraction stage.</p></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy ↗</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy ↗</button></div></div></section>
+            <section className="records-section panel">
+              <div className="section-header"><div><div className="section-kicker">03 / LIVE DATA</div><h2>Records</h2><p>One record per source page. Missing values appear as null.</p></div><button className="ghost-button" onClick={() => void refreshJob()} disabled={busy || !config?.extraction_ready}>{busy ? "Refreshing…" : "Refresh now"}</button></div>
+              {records.length ? <div className="table-wrap"><table><thead><tr>{Object.keys(selected.schema).map((key) => <th key={key}>{key}</th>)}<th>Extracted</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}>{Object.keys(selected.schema).map((key) => <td key={key}>{key === "source_url" ? <a href={record.source_url} target="_blank" rel="noreferrer">Source ↗</a> : record.data[key] === null || record.data[key] === undefined ? "null" : String(record.data[key])}</td>)}<td>{new Date(record.extracted_at).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="empty-records">No records yet. Run or refresh this job after configuring Firecrawl.</p>}
+            </section>
+
+            <section className="api-section panel"><div><div className="section-kicker">04 / API</div><h2>API endpoints</h2><p>Copy the records URL to use the extracted JSON.</p></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{recordsPath}</code><button onClick={() => void copyEndpoint(recordsPath)}>Copy ↗</button></div><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy ↗</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy ↗</button></div></div></section>
           </>}
         </div>
       </main>
