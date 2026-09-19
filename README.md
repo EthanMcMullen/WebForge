@@ -56,17 +56,18 @@ A records response has `job_id`, `status`, `count`, and `records`. Each record i
 
 1. The dashboard sends the plain-English request to `POST /api/jobs`.
 2. OpenAI Responses plans the schema and focused search queries.
-3. Firecrawl Search discovers up to five pages for automatic jobs. Provided URL jobs skip search.
+3. Firecrawl Search discovers public candidate pages for automatic jobs and excludes known unsupported domains. Provided URL jobs skip search and never switch to other sources.
 4. Firecrawl Scrape's JSON format extracts a record using the planned field schema.
-5. WebForge checks the returned JSON shape, fills missing fields with `null`, and saves successful records in SQLite.
+5. WebForge checks the returned JSON shape, rejects all-null records, and saves each successful record immediately in SQLite.
 6. `GET /api/jobs/:id/records` serves the stored JSON.
 
-`planned` means a schema exists but the data run has not finished. `ready` means at least one record was saved. Other statuses show discovery, scraping, extraction, storage, or failure. A partial failure can leave the job `ready` with an error describing failed pages.
+`planned` means a schema exists but the data run has not finished. `ready` means at least one record was saved. Other statuses show discovery, scraping, extraction, storage, or failure. A partial failure can leave the job `ready` with a concise warning. The latest run summary shows search, scrape, recovery, and skipped-source counts.
 
 ## Current scope
 
 - One source page produces one record. Broad list pages may not yield every item on the page.
-- The five page cap bounds demo time and Firecrawl usage. Search can return irrelevant pages; this MVP trusts Firecrawl extraction and does not fact check values.
+- Each run allows at most two Firecrawl searches (one initial and one recovery), three structured scrapes, one OpenAI recovery decision, three source failures, and 90 seconds. These are per-run limits; there is no daily credit cap. At current Firecrawl rates, a full run is roughly 19 credits.
+- Known unsupported social domains are skipped before scraping. Firecrawl errors are classified, and an automatic job can ask OpenAI for one alternate search query when candidate pages run out. Provided URL jobs do not switch sources. Search can still return irrelevant pages; this MVP trusts Firecrawl extraction and does not fact check values.
 - Refresh is manual. `refresh_interval` is stored for later scheduling but does not trigger automatic runs.
 - Fields visible only in product images, OCR, login-only pages, and private pages are outside this version.
 - The extraction provider is behind `ExtractionProvider` in `src/lib/providers/firecrawl.ts`, so a later local Qwen provider can return the same record shape.

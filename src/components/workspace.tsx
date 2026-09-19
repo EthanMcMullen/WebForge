@@ -143,7 +143,7 @@ export function Workspace() {
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark">W</div><div><strong>WebForge</strong><span>API JOBS</span></div></div>
         <div className="sidebar-section-label">WORKSPACE</div>
-        <button className="nav-item active" onClick={() => setSelectedId(null)}><span className="nav-icon">＋</span> New API job</button>
+        <button className="nav-item active" onClick={() => setSelectedId(null)}><span className="nav-icon">ï¼‹</span> New API job</button>
         <div className="sidebar-section-label datasets-label">API JOBS <span>{jobs.length}</span></div>
         <div className="dataset-list">
           {jobs.length ? jobs.map((job) => (
@@ -158,10 +158,10 @@ export function Workspace() {
 
       <main className="main">
         <header className="topbar"><div className="breadcrumbs">API JOBS <span>/</span> {selected ? selected.name.toUpperCase() : "NEW"}</div><div className="top-right"><span className="version">LIVE API</span><span className="avatar">WF</span></div></header>
-        {message && <div className="toast" role="status"><span>{message}</span><button onClick={() => setMessage(null)} aria-label="Dismiss">×</button></div>}
+        {message && <div className="toast" role="status"><span>{message}</span><button onClick={() => setMessage(null)} aria-label="Dismiss">Ã—</button></div>}
 
         <div className="content">
-          <div className="hero-eyebrow"><span className="sparkle">✦</span> NATURAL LANGUAGE TO API</div>
+          <div className="hero-eyebrow"><span className="sparkle">âœ¦</span> NATURAL LANGUAGE TO API</div>
           <h1>Describe the data.<br /><em>Get a live API.</em></h1>
           <p className="hero-copy">Describe public web data in plain English. WebForge plans the fields, finds sources, extracts records, and serves them as JSON.</p>
 
@@ -170,19 +170,19 @@ export function Workspace() {
             <label className="input-label" htmlFor="job-name">NAME <span>OPTIONAL</span></label>
             <input id="job-name" className="text-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Generated automatically when omitted" />
             <label className="input-label request-label" htmlFor="request">USER REQUEST</label>
-            <textarea id="request" value={userRequest} onChange={(event) => setUserRequest(event.target.value)} rows={4} placeholder="Describe the public web data your API should contain…" />
+            <textarea id="request" value={userRequest} onChange={(event) => setUserRequest(event.target.value)} rows={4} placeholder="Describe the public web data your API should containâ€¦" />
 
             <div className="composer-options">
               <div className="mode-group" role="group" aria-label="Source strategy">
                 <button type="button" className={strategy === "automatic" ? "mode active" : "mode"} onClick={() => setStrategy("automatic")}>Automatic discovery</button>
                 <button type="button" className={strategy === "provided_urls" ? "mode active" : "mode"} onClick={() => setStrategy("provided_urls")}>Provided URLs</button>
               </div>
-              <span className="mode-hint">Automatic discovery searches for up to five pages. You can also provide up to five URLs.</span>
+              <span className="mode-hint">Automatic discovery tries up to three pages per run, with one bounded recovery search. You can provide up to five URLs; each run tries at most three.</span>
             </div>
 
             {strategy === "provided_urls" && <div className="seed-block"><label className="input-label" htmlFor="sources">SOURCES <span>ONE PUBLIC URL PER LINE</span></label><textarea id="sources" rows={3} value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="https://example.com/source" /></div>}
-            <div className="interval-row"><label className="input-label" htmlFor="interval">REFRESH INTERVAL <span>MINUTES · OPTIONAL · MANUAL REFRESH IN MVP</span></label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
-            <div className="composer-footer"><span>Request → plan → Firecrawl → records → API</span><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready}>{busy ? "Creating API…" : "Create API"}<span>↗</span></button></div>
+            <div className="interval-row"><label className="input-label" htmlFor="interval">REFRESH INTERVAL <span>MINUTES Â· OPTIONAL Â· MANUAL REFRESH IN MVP</span></label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
+            <div className="composer-footer"><span>Request â†’ plan â†’ Firecrawl â†’ records â†’ API</span><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready}>{busy ? "Creating APIâ€¦" : "Create API"}<span>â†—</span></button></div>
           </section>
 
           {selected && <>
@@ -190,22 +190,32 @@ export function Workspace() {
               <div className="metric panel"><span>JOB</span><strong>{selected.name}</strong><small>{selected.id}</small></div>
               <div className="metric panel"><span>STATUS</span><strong className={`metric-status ${selected.status}`}>{statusLabels[selected.status]}</strong><small>Updated {new Date(selected.updated_at).toLocaleString()}</small></div>
               <div className="metric panel"><span>SCHEMA FIELDS</span><strong>{Object.keys(selected.schema).length}</strong><small>{records.length} records stored</small></div>
-              <div className="metric panel"><span>REFRESH</span><strong>{selected.refresh_interval ? `${selected.refresh_interval}m` : "Manual"}</strong><small>{selected.source_strategy.type.replaceAll("_", " ")} · manual run</small></div>
+              <div className="metric panel"><span>REFRESH</span><strong>{selected.refresh_interval ? `${selected.refresh_interval}m` : "Manual"}</strong><small>{selected.source_strategy.type.replaceAll("_", " ")} Â· manual run</small></div>
             </section>
+
+            {selected.run_summary && <div className="run-summary panel" aria-label="Latest run summary">
+              <strong>Latest run</strong>
+              <span>{selected.run_summary.saved_records} saved</span>
+              <span>{selected.run_summary.skipped_sources} skipped</span>
+              <span>{selected.run_summary.search_calls} searches</span>
+              <span>{selected.run_summary.scrape_calls} scrapes</span>
+              <span>{selected.run_summary.recovery_calls} recovery decisions</span>
+              {selected.run_summary.stop_reason && <small>{selected.run_summary.stop_reason}</small>}
+            </div>}
 
             {selected.error && <div className="error-banner job-error">{selected.error}</div>}
 
             <section className="records-section panel">
               <div className="section-header"><div><div className="section-kicker">02 / JOB DEFINITION</div><h2>Record schema</h2><p>Firecrawl extracts these fields from each source page.</p></div></div>
-              <div className="table-wrap"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>{Object.entries(selected.schema).map(([key, field]) => <tr key={key}><td><code>{key}</code></td><td><span className="status-pill sample">{field.type}</span></td><td>{field.description || "—"}</td></tr>)}</tbody></table></div>
+              <div className="table-wrap"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>{Object.entries(selected.schema).map(([key, field]) => <tr key={key}><td><code>{key}</code></td><td><span className="status-pill sample">{field.type}</span></td><td>{field.description || "â€”"}</td></tr>)}</tbody></table></div>
             </section>
 
             <section className="records-section panel">
-              <div className="section-header"><div><div className="section-kicker">03 / LIVE DATA</div><h2>Records</h2><p>One record per source page. Missing values appear as null.</p></div><button className="ghost-button" onClick={() => void refreshJob()} disabled={busy || !config?.extraction_ready}>{busy ? "Refreshing…" : "Refresh now"}</button></div>
-              {records.length ? <div className="table-wrap"><table><thead><tr>{Object.keys(selected.schema).map((key) => <th key={key}>{key}</th>)}<th>Extracted</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}>{Object.keys(selected.schema).map((key) => <td key={key}>{key === "source_url" ? <a href={record.source_url} target="_blank" rel="noreferrer">Source ↗</a> : record.data[key] === null || record.data[key] === undefined ? "null" : String(record.data[key])}</td>)}<td>{new Date(record.extracted_at).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="empty-records">No records yet. Run or refresh this job after configuring Firecrawl.</p>}
+              <div className="section-header"><div><div className="section-kicker">03 / LIVE DATA</div><h2>Records</h2><p>One record per source page. Missing values appear as null.</p></div><button className="ghost-button" onClick={() => void refreshJob()} disabled={busy || !config?.extraction_ready}>{busy ? "Refreshingâ€¦" : "Refresh now"}</button></div>
+              {records.length ? <div className="table-wrap"><table><thead><tr>{Object.keys(selected.schema).map((key) => <th key={key}>{key}</th>)}<th>Extracted</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}>{Object.keys(selected.schema).map((key) => <td key={key}>{key === "source_url" ? <a href={record.source_url} target="_blank" rel="noreferrer">Source â†—</a> : record.data[key] === null || record.data[key] === undefined ? "null" : String(record.data[key])}</td>)}<td>{new Date(record.extracted_at).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="empty-records">No records yet. Run or refresh this job after configuring Firecrawl.</p>}
             </section>
 
-            <section className="api-section panel"><div><div className="section-kicker">04 / API</div><h2>API endpoints</h2><p>Copy the records URL to use the extracted JSON.</p></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{recordsPath}</code><button onClick={() => void copyEndpoint(recordsPath)}>Copy ↗</button></div><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy ↗</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy ↗</button></div></div></section>
+            <section className="api-section panel"><div><div className="section-kicker">04 / API</div><h2>API endpoints</h2><p>Copy the records URL to use the extracted JSON.</p></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{recordsPath}</code><button onClick={() => void copyEndpoint(recordsPath)}>Copy â†—</button></div><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy â†—</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy â†—</button></div></div></section>
           </>}
         </div>
       </main>
