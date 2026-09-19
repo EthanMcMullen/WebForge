@@ -8,7 +8,7 @@ test("a successful automatic fallback does not show a job error", () => {
     errors: ["https://business.walmart.com/c/brand/good-apple: no structured json"],
     expectedCap: false,
   });
-  assert.deepEqual(result, { outcome: "ready", stopReason: null, warning: null });
+  assert.deepEqual(result, { outcome: "partial_stopped", stopReason: "1 source(s) skipped or failed.", warning: null });
 });
 
 test("explicit source failure stays visible when another provided URL succeeds", () => {

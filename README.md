@@ -11,7 +11,7 @@ npm install
 Copy-Item .env.example .env.local
 ```
 
-Set `OPENAI_API_KEY` and `FIRECRAWL_API_KEY` in `.env.local`, then run:
+Set `OPENAI_API_KEY` and `FIRECRAWL_API_KEY` in `.env.local`. For shared access or deployment, also set `WEBFORGE_ACCESS_TOKEN` to a long random value. Then run:
 
 ```powershell
 npm run dev
@@ -20,6 +20,10 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000). Enter a request such as “Create an API with the title, author, and publication date of recent articles about battery recycling.” Choose automatic discovery or supply up to five public page URLs. Click **Propose fields**, choose the fields you want in the JSON API, then click **Confirm fields and build API**. Firecrawl runs only after confirmation.
 
 `OPENAI_MODEL` defaults to `gpt-4.1-mini`. `WEBFORGE_DB_PATH` defaults to `.data/webforge.sqlite` under the project directory. The `.env.local` file and database are ignored by Git.
+
+## Access
+
+Local development runs without an access token unless you configure one. Production requires `WEBFORGE_ACCESS_TOKEN`; the UI asks for it before loading API data. Programmatic API callers send `Authorization: Bearer <WEBFORGE_ACCESS_TOKEN>`. This is a shared workspace gate, not separate user accounts. Keep the token private and use HTTPS when hosting WebForge.
 
 ## API
 
@@ -63,10 +67,10 @@ A records response has `job_id`, `status`, `count`, and `records`. Each record i
 3. The user selects at least one proposed data field. `source_url` is always included. `PATCH /api/jobs/:id/fields` saves the confirmed schema.
 4. Firecrawl Search discovers public candidate pages for automatic jobs and excludes known unsupported domains. Provided URL jobs skip search and never switch to other sources.
 5. Firecrawl Scrape's JSON format extracts a record using only the confirmed field schema.
-6. WebForge checks the returned JSON shape, rejects all-null records, and saves each successful record immediately in SQLite.
+6. WebForge checks the returned JSON shape, rejects empty or very sparse records, and saves each successful record immediately in SQLite.
 7. `GET /api/jobs/:id/records` serves the stored JSON.
 
-`awaiting_fields` means OpenAI has proposed fields and the user must confirm a selection. `planned` means a confirmed schema exists but extraction has not finished. `ready` means at least one record was saved. Other statuses show discovery, scraping, extraction, storage, or failure. A partial failure can leave the job `ready` with a concise warning. The latest run summary shows search, scrape, recovery, and skipped-source counts.
+`awaiting_fields` means OpenAI has proposed fields and the user must confirm a selection. `planned` means a confirmed schema exists but extraction has not finished. `ready` means at least one record was saved. Other statuses show discovery, scraping, extraction, storage, or failure. A partial failure can leave the job `ready`, while the latest run shows `partial_stopped`. The latest run summary shows search, scrape, recovery, and skipped-source counts.
 
 ## Current scope
 
@@ -77,7 +81,7 @@ A records response has `job_id`, `status`, `count`, and `records`. Each record i
 - Fields visible only in product images, OCR, login-only pages, and private pages are outside this version.
 - Automatic discovery checks whether search results match the request before scraping. For numeric prices, extraction also checks that the price appears next to the matching item in the page text. If a product page lacks its own price but a linked category card shows it, one bounded category-page fallback may supply the record.
 - The extraction provider is behind `ExtractionProvider` in `src/lib/providers/firecrawl.ts`, so a later local Qwen provider can return the same record shape.
-- This is a local hackathon MVP with no API authentication or hosted background worker. Add those before exposing it publicly.
+- A shared token protects the API when configured; individual user accounts and a hosted background worker are not implemented.
 
 ## Verify
 

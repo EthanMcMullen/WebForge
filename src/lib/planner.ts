@@ -52,6 +52,7 @@ export async function planApiJob(userRequest: string): Promise<ApiPlan> {
       "Search queries should find individual pages, not broad lists. If the user gives an explicit domain, include it with site: in a query. A retailer name alone does not imply a country or top-level domain; search across that retailer's regional sites unless the user specifies a country.",
       "Preserve exact product type, variety, model, and retailer. For grocery fruit, target fresh fruit product pages rather than trees, seeds, plants, or dried fruit; include fresh and use exclusions such as -tree when helpful.",
       "Do not assume USD or another currency unless the user specifies it. If price is a field, describe it in the source's currency and consider a separate currency field.",
+      "For an open-ended request, choose one concrete subject with public item pages and fields those pages can actually provide. Avoid private logs, invented datasets, and pages about a topic rather than records of the requested item.",
       "Never invent exact source URLs; search will provide real URLs.",
       "Use snake_case field keys and only string, number, integer, or boolean field types.",
       "Dates must be strings whose descriptions require ISO 8601 format.",

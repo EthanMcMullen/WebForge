@@ -1,3 +1,4 @@
+import { accessFailure } from "@/lib/access";
 import { NextResponse } from "next/server";
 import { getApiJob } from "@/lib/store";
 import { runApiJob } from "@/lib/pipeline";
@@ -6,6 +7,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 export async function POST(_request: Request, context: RouteContext<"/api/jobs/[id]/run">) {
+  const denied = accessFailure(_request);
+  if (denied) return denied;
   const { id } = await context.params;
   if (!getApiJob(id)) return NextResponse.json({ error: "API job not found." }, { status: 404 });
   try {

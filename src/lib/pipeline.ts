@@ -1,6 +1,6 @@
 import "server-only";
 import { planApiJob } from "./planner";
-import { countApiRecords, getApiJob, saveApiJob, saveApiRecords, saveRunSummary } from "./store";
+import { countApiRecords, getApiJob, saveApiJob, saveApiJobProgress, saveApiRecords, saveRunSummary } from "./store";
 import { cleanSourceUrls, type CreateApiJobData } from "./validation";
 import type { ApiJob, ApiRecord, RunSummary, SourceCandidate, SourceFailureCode } from "./types";
 import { firecrawlProvider, type ExtractionProvider } from "./providers/firecrawl";
@@ -44,7 +44,7 @@ function setStatus(job: ApiJob, status: ApiJob["status"], error: string | null =
   job.status = status;
   job.error = error;
   job.updatedAt = new Date().toISOString();
-  saveApiJob(job);
+  saveApiJobProgress(job);
 }
 function failureDescription(url: string, code: SourceFailureCode): string {
   return `${url}: ${code.replaceAll("_", " ").toLowerCase()}`;
@@ -178,7 +178,7 @@ export async function runApiJob(
           if (code === "UNSUPPORTED_SITE" && host) {
             blocked.add(host);
             job.blockedDomains = [...new Set([...(job.blockedDomains || []), host])];
-            saveApiJob(job);
+            saveApiJobProgress(job);
           }
           if (isFatalFailure(code)) {
             stopReason = `Firecrawl stopped: ${code.replaceAll("_", " ").toLowerCase()}.`;
@@ -230,6 +230,7 @@ export async function runApiJob(
     stopReason = error instanceof Error ? error.message : "Run failed.";
   } finally {
     const existingCount = countApiRecords(job.id);
+    job.recordCount = existingCount;
     const hasRecords = existingCount > 0;
     summary.finishedAt = new Date().toISOString();
     const expectedCap = stopReason === `Stopped at the ${RUN_LIMITS.scrapes}-scrape per-run limit.` &&

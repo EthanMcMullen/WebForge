@@ -17,14 +17,14 @@ export interface SourceStrategy { type: SourceStrategyType; searchQueries: strin
 export interface ApiJob {
   id: string; name: string; userRequest: string; status: ApiJobStatus;
   schema: ApiRecordSchema; sourceStrategy: SourceStrategy; sources: string[];
-  refreshInterval: number | null; error: string | null; createdAt: string; updatedAt: string;
+  refreshInterval: number | null; error: string | null; createdAt: string; updatedAt: string; recordCount?: number;
   blockedDomains?: string[]; runSummary?: RunSummary | null;
   proposedSchema?: ApiRecordSchema; schemaConfirmedAt?: string | null;
 }
 export interface ApiJobResponse {
   id: string; name: string; user_request: string; status: ApiJobStatus;
   schema: ApiRecordSchema; source_strategy: { type: SourceStrategyType; search_queries: string[] };
-  sources: string[]; refresh_interval: number | null; error: string | null;
+  sources: string[]; refresh_interval: number | null; error: string | null; record_count: number;
   created_at: string; updated_at: string;
   proposed_schema: ApiRecordSchema; schema_confirmed_at: string | null;
   run_summary: {
@@ -44,7 +44,7 @@ export function toApiJobResponse(job: ApiJob): ApiJobResponse {
     id: job.id, name: job.name, user_request: job.userRequest, status: job.status,
     schema: job.schema,
     source_strategy: { type: job.sourceStrategy.type, search_queries: job.sourceStrategy.searchQueries },
-    sources: job.sources, refresh_interval: job.refreshInterval, error: job.error,
+    sources: job.sources, refresh_interval: job.refreshInterval, error: job.error, record_count: job.recordCount ?? 0,
     created_at: job.createdAt, updated_at: job.updatedAt,
     proposed_schema: job.status === "awaiting_fields" ? (job.proposedSchema || {}) : {},
     schema_confirmed_at: job.schemaConfirmedAt || null,

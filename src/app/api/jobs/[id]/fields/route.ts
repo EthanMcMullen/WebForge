@@ -1,3 +1,4 @@
+import { accessFailure } from "@/lib/access";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { confirmApiJobFields, getApiJob } from "@/lib/store";
@@ -8,6 +9,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const denied = accessFailure(request);
+  if (denied) return denied;
   const { id } = await context.params;
   const existing = getApiJob(id);
   if (!existing) return NextResponse.json({ error: "API job not found." }, { status: 404 });

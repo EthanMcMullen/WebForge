@@ -33,8 +33,11 @@ export function normalizeExtractedData(raw: unknown, schema: ApiRecordSchema, so
     if (!valid) throw new Error(`Firecrawl returned an invalid value for ${key}.`);
     data[key] = value as string | number | boolean;
   }
-  if (Object.values(data).every((value) => value === null)) {
-    throw new Error("Firecrawl returned no usable fields.");
+  const filled = Object.values(data).filter((value) => value !== null && value !== "").length;
+  const total = Object.keys(data).length;
+  if (filled === 0) throw new Error("Firecrawl returned no usable fields.");
+  if (total >= 4 && filled < Math.ceil(total / 2)) {
+    throw new Error(`Firecrawl returned an incomplete record (${filled}/${total} fields).`);
   }
   data.source_url = sourceUrl;
   return data;

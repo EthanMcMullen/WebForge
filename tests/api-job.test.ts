@@ -96,3 +96,9 @@ test("search results yield at most five unique public URLs", () => {
   assert.deepEqual(selectSourceUrls(results), ["https://example.com/one", "https://example.com/two"]);
   assert.deepEqual(selectSourceUrls(results, 1), ["https://example.com/one"]);
 });
+
+
+test("sparse extraction cannot masquerade as a complete API record", () => {
+  const schema = Object.fromEntries(["event_id", "timestamp", "source_ip", "destination_ip", "protocol", "event_type", "data_volume_bytes", "success"].map((key) => [key, { type: key === "success" ? "boolean" : "string" }])) as import("../src/lib/types.ts").ApiRecordSchema;
+  assert.throws(() => normalizeExtractedData({ timestamp: "2025-02-27T00:00:00Z" }, schema, "https://example.com/unrelated"), /incomplete record/);
+});

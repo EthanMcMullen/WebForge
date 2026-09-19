@@ -64,6 +64,7 @@ test("a related product price cannot validate the requested apple", () => {
 test("Firecrawl errors are normalized without forwarding provider text", () => {
   assert.equal(classifySourceError(new Error("We apologize for the inconvenience but we do not support this site.")), "UNSUPPORTED_SITE");
   assert.equal(classifySourceError(new Error("Firecrawl returned no structured JSON object.")), "NO_STRUCTURED_JSON");
+  assert.equal(classifySourceError(new Error("Firecrawl returned an incomplete record (1/8 fields).")), "SCHEMA_MISMATCH");
   assert.equal(classifySourceError(Object.assign(new Error("Forbidden"), { status: 403 })), "ACCESS_BLOCKED");
   assert.equal(classifySourceError(Object.assign(new Error("Source returned HTTP 401."), { status: 401 })), "ACCESS_BLOCKED");
   assert.equal(classifySourceError(Object.assign(new Error("No credits"), { status: 429 })), "RATE_LIMITED");

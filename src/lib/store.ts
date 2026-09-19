@@ -106,7 +106,7 @@ function mapApiJob(row: ApiJobRow): ApiJob {
     blockedDomains: JSON.parse(row.blocked_domains_json) as string[],
     proposedSchema: JSON.parse(row.proposed_schema_json) as ApiRecordSchema,
     schemaConfirmedAt: row.schema_confirmed_at,
-    runSummary: getLatestRun(row.id),
+    runSummary: getLatestRun(row.id), recordCount: countApiRecords(row.id),
   };
 }
 export function listApiJobs(): ApiJob[] {
@@ -134,6 +134,12 @@ export function saveApiJob(job: ApiJob): void {
     JSON.stringify(job.sourceStrategy), JSON.stringify(job.sources), job.refreshInterval,
     job.error, job.createdAt, job.updatedAt, JSON.stringify(job.blockedDomains || []),
     JSON.stringify(job.proposedSchema || job.schema), job.schemaConfirmedAt || null);
+}
+export function saveApiJobProgress(job: ApiJob): void {
+  const result = database().prepare(`UPDATE api_jobs SET status = ?, error = ?, updated_at = ?,
+    sources_json = ?, blocked_domains_json = ? WHERE id = ?`)
+    .run(job.status, job.error, job.updatedAt, JSON.stringify(job.sources), JSON.stringify(job.blockedDomains || []), job.id);
+  if (!result.changes) throw new Error("API job was deleted while a run was in progress.");
 }
 export function confirmApiJobFields(jobId: string, selectedFields: string[]): ApiJob {
   const db = database();
@@ -193,17 +199,27 @@ export function saveApiRecords(jobId: string, records: ApiRecord[]): void {
   }
 }
 
+const activeStatuses = ["planning", "discovering", "scraping", "extracting", "storing"];
+const activeSql = activeStatuses.map(() => "?").join(", ");
+
 export function updateApiJobSettings(jobId: string, input: { name?: string; refreshInterval?: number | null }): ApiJob {
   const job = getApiJob(jobId);
   if (!job) throw new Error("API job not found.");
   const now = new Date().toISOString();
-  database().prepare("UPDATE api_jobs SET name = ?, refresh_interval = ?, updated_at = ? WHERE id = ?")
-    .run(input.name ?? job.name, input.refreshInterval === undefined ? job.refreshInterval : input.refreshInterval, now, jobId);
+  const result = database().prepare(`UPDATE api_jobs SET name = ?, refresh_interval = ?, updated_at = ?
+    WHERE id = ? AND status NOT IN (${activeSql})`)
+    .run(input.name ?? job.name, input.refreshInterval === undefined ? job.refreshInterval : input.refreshInterval,
+      now, jobId, ...activeStatuses);
+  if (!result.changes) throw new Error("This API is running. Wait for the run to finish before changing settings.");
   const updated = getApiJob(jobId);
   if (!updated) throw new Error("API job not found.");
   return updated;
 }
 
 export function deleteApiJob(jobId: string): boolean {
-  return database().prepare("DELETE FROM api_jobs WHERE id = ?").run(jobId).changes > 0;
+  const result = database().prepare(`DELETE FROM api_jobs WHERE id = ? AND status NOT IN (${activeSql})`)
+    .run(jobId, ...activeStatuses);
+  if (result.changes) return true;
+  if (getApiJob(jobId)) throw new Error("This API is running. Wait for the run to finish before deleting it.");
+  return false;
 }

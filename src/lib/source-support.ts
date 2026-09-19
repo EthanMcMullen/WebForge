@@ -60,7 +60,7 @@ export function classifySourceError(error: unknown): SourceFailureCode {
   if (status === 403 || /login.required|access.denied|captcha|blocked.by/.test(message)) return "ACCESS_BLOCKED";
   if (/no structured json|no usable fields/.test(message)) return "NO_STRUCTURED_JSON";
   if (/price was not supported by source text/.test(message)) return "UNVERIFIED_PRICE";
-  if (/invalid value for/.test(message)) return "SCHEMA_MISMATCH";
+  if (/invalid value for|incomplete record/.test(message)) return "SCHEMA_MISMATCH";
   if (status === 404 || (status !== undefined && status >= 500) || /source returned http/.test(message)) return "SOURCE_HTTP_ERROR";
   return "TRANSIENT";
 }

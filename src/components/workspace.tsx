@@ -24,8 +24,13 @@ export function Workspace() {
   const [jobs, setJobs] = useState<ApiJobResponse[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<WorkspaceView>("home");
-const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [apiSettingsOpen, setApiSettingsOpen] = useState(false);
+  const [apiSettingsJobId, setApiSettingsJobId] = useState<string | null>(null);
+  const [accessState, setAccessState] = useState<"checking" | "unlocked" | "locked" | "missing">("checking");
+  const [accessRequired, setAccessRequired] = useState(false);
+  const [accessToken, setAccessToken] = useState("");
+  const [accessMessage, setAccessMessage] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editInterval, setEditInterval] = useState("");
   const [deleteArmed, setDeleteArmed] = useState(false);
@@ -59,33 +64,60 @@ const [settingsOpen, setSettingsOpen] = useState(false);
     if (!response.ok) throw new Error("Could not load API jobs.");
     const result = await response.json() as { jobs: ApiJobResponse[] };
     setJobs(result.jobs);
-    setSelectedId((current) => preferredId || current || result.jobs[0]?.id || null);
+    setSelectedId((current) => {
+      const candidate = preferredId || current;
+      return result.jobs.some((job) => job.id === candidate) ? candidate : result.jobs[0]?.id || null;
+    });
   }, []);
 
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId || accessState !== "unlocked") return;
     void fetch(`/api/jobs/${selectedId}/records`, { cache: "no-store" })
       .then((response) => response.json())
       .then((result: { records?: ApiRecordResponse[] }) => setRecords(result.records || []))
       .catch(() => setRecords([]));
-  }, [selectedId, jobs]);
+  }, [selectedId, jobs, accessState]);
+
 
   useEffect(() => {
+    void fetch("/api/access", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((state: { required: boolean; configured: boolean; authenticated: boolean }) => {
+        setAccessRequired(state.required);
+        setAccessState(state.authenticated ? "unlocked" : state.configured ? "locked" : "missing");
+      })
+      .catch(() => setAccessState("missing"));
+  }, []);
+
+  useEffect(() => {
+    if (accessState !== "unlocked") return;
     void fetch("/api/jobs", { cache: "no-store" })
       .then((response) => {
         if (!response.ok) throw new Error("Could not load API jobs.");
         return response.json() as Promise<{ jobs: ApiJobResponse[] }>;
       })
-      .then((result) => {
-        setJobs(result.jobs);
-        setSelectedId(result.jobs[0]?.id || null);
-      })
+      .then((result) => { setJobs(result.jobs); setSelectedId(result.jobs[0]?.id || null); })
       .catch((error: Error) => setMessage(error.message));
     void fetch("/api/config")
       .then((response) => response.json())
       .then((result: Config) => setConfig(result))
       .catch(() => setMessage("Could not load configuration."));
-  }, [loadJobs]);
+  }, [accessState, loadJobs]);
+
+  async function unlockWorkspace() {
+    setAccessMessage(null);
+    const response = await fetch("/api/access", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: accessToken }) });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) { setAccessMessage(result.error || "Could not unlock WebForge."); return; }
+    setAccessToken("");
+    setAccessState("unlocked");
+  }
+
+  async function lockWorkspace() {
+    await fetch("/api/access", { method: "DELETE" });
+    setJobs([]); setRecords([]); setConfig(null); setSelectedId(null); setSettingsOpen(false);
+    setAccessState("locked");
+  }
 
   async function createJob() {
     setBusy(true);
@@ -170,6 +202,7 @@ const [settingsOpen, setSettingsOpen] = useState(false);
 
   function openApiSettings() {
     if (!selected) return;
+    setApiSettingsJobId(selected.id);
     setEditName(selected.name);
     setEditInterval(selected.refresh_interval ? String(selected.refresh_interval) : "");
     setDeleteArmed(false);
@@ -177,16 +210,17 @@ const [settingsOpen, setSettingsOpen] = useState(false);
   }
 
   async function saveApiSettings() {
-    if (!selected || editName.trim().length < 3) return;
+    if (!selected || selected.id !== apiSettingsJobId || editName.trim().length < 3) return;
+    const targetId = apiSettingsJobId;
     setBusy(true);
     try {
-      const response = await fetch(`/api/jobs/${selected.id}`, {
+      const response = await fetch(`/api/jobs/${targetId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: editName.trim(), refresh_interval: editInterval ? Number(editInterval) : null }),
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not save API settings.");
-      await loadJobs(selected.id);
+      await loadJobs(targetId);
       setApiSettingsOpen(false);
       setMessage("API settings saved.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save API settings."); }
@@ -194,10 +228,11 @@ const [settingsOpen, setSettingsOpen] = useState(false);
   }
 
   async function removeApi() {
-    if (!selected || !deleteArmed) return;
+    if (!selected || selected.id !== apiSettingsJobId || !deleteArmed) return;
+    const targetId = apiSettingsJobId;
     setBusy(true);
     try {
-      const response = await fetch(`/api/jobs/${selected.id}`, { method: "DELETE" });
+      const response = await fetch(`/api/jobs/${targetId}`, { method: "DELETE" });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not delete API.");
       setApiSettingsOpen(false);
@@ -215,11 +250,25 @@ const [settingsOpen, setSettingsOpen] = useState(false);
 
   const jobPath = selected ? `/api/jobs/${selected.id}` : "";
   const schemaPath = selected ? `/api/jobs/${selected.id}/schema` : "";
-const recordsPath = selected ? `/api/jobs/${selected.id}/records` : "";
+  const recordsPath = selected ? `/api/jobs/${selected.id}/records` : "";
   const readyJobs = jobs.filter((job) => job.status === "ready");
-  const storedRecords = jobs.reduce((total, job) => total + (job.run_summary?.saved_records || 0), 0);
-const latestJob = jobs[0] || null;
+  const storedRecords = jobs.reduce((total, job) => total + job.record_count, 0);
+  const latestJob = jobs[0] || null;
   const screenTitle = view === "home" ? "HOME" : view === "new" ? "NEW API" : view === "library" ? "API LIBRARY" : selected?.name.toUpperCase() || "API DETAIL";
+
+  if (accessState !== "unlocked") return (
+    <main className="access-screen"><section className="access-card panel">
+      <div className="brand-mark">W</div><div className="section-kicker">WEBFORGE WORKSPACE</div>
+      <h1>{accessState === "checking" ? "Opening workspace" : accessState === "missing" ? "Workspace access needs setup" : "Unlock WebForge"}</h1>
+      {accessState === "locked" ? <form onSubmit={(event) => { event.preventDefault(); void unlockWorkspace(); }}>
+        <p>Enter the access token configured on this server.</p>
+        <label className="input-label" htmlFor="access-token">ACCESS TOKEN</label>
+        <input id="access-token" className="text-input" type="password" autoComplete="current-password" value={accessToken} onChange={(event) => setAccessToken(event.target.value)} />
+        {accessMessage && <p role="alert">{accessMessage}</p>}
+        <button className="primary-button" type="submit" disabled={!accessToken}>Unlock workspace</button>
+      </form> : accessState === "missing" ? <p>Set WEBFORGE_ACCESS_TOKEN on the server and restart WebForge.</p> : <p>Checking access...</p>}
+    </section></main>
+  );
 
   return (
     <div className="shell">
@@ -249,13 +298,14 @@ const latestJob = jobs[0] || null;
           <p>Connection status and account controls.</p>
           <div><span>OpenAI planner</span><b className={config?.planner_ready ? "good" : "bad"}>{config?.planner_ready ? "Connected" : "Needs key"}</b></div>
           <div><span>Firecrawl extraction</span><b className={config?.extraction_ready ? "good" : "bad"}>{config?.extraction_ready ? "Connected" : "Needs key"}</b></div>
+          {accessRequired && <button className="ghost-button" onClick={() => void lockWorkspace()}>Lock workspace</button>}
           <button className="ghost-button" onClick={() => setSettingsOpen(false)}>Close settings</button>
         </div>}
 
         <div className="content">
           {view === "home" ? <>
             <div className="dashboard-hero"><div><div className="hero-eyebrow"><span className="sparkle">*</span> WEBFORGE WORKSPACE</div><h1>Your web data,<br /><em>ready to build with.</em></h1><p className="hero-copy">Create APIs from public websites, keep an eye on their latest runs, and ship the JSON your project needs.</p></div><button className="dashboard-create" onClick={() => setView("new")}><span>+</span><div><strong>Create an API</strong><small>Start from a plain-English request</small></div></button></div>
-            <section className="dashboard-stats" aria-label="Workspace summary"><div className="stat-card panel"><span>ACTIVE APIS</span><strong>{jobs.length}</strong><small>{readyJobs.length} ready to use</small></div><div className="stat-card panel"><span>RECORDS CAPTURED</span><strong>{storedRecords}</strong><small>Across latest successful runs</small></div><div className="stat-card panel"><span>LAST UPDATED</span><strong>{latestJob ? new Date(latestJob.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "--"}</strong><small>{latestJob ? latestJob.name : "No APIs yet"}</small></div><div className="stat-card accent panel"><span>QUICK START</span><strong>New API</strong><button onClick={() => setView("new")}>Describe your data <span>&gt;</span></button></div></section>
+            <section className="dashboard-stats" aria-label="Workspace summary"><div className="stat-card panel"><span>ACTIVE APIS</span><strong>{jobs.length}</strong><small>{readyJobs.length} ready to use</small></div><div className="stat-card panel"><span>RECORDS CAPTURED</span><strong>{storedRecords}</strong><small>Stored across all APIs</small></div><div className="stat-card panel"><span>LAST UPDATED</span><strong>{latestJob ? new Date(latestJob.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "--"}</strong><small>{latestJob ? latestJob.name : "No APIs yet"}</small></div><div className="stat-card accent panel"><span>QUICK START</span><strong>New API</strong><button onClick={() => setView("new")}>Describe your data <span>&gt;</span></button></div></section>
             <section className="dashboard-grid"><div className="dashboard-panel panel"><div className="dashboard-heading"><div><div className="section-kicker">RECENT ACTIVITY</div><h2>What happened recently</h2></div><button className="text-button" onClick={() => setView("library")}>View library</button></div>{jobs.length ? <div className="activity-list">{jobs.slice(0, 4).map((job) => <button className="activity-item" key={job.id} onClick={() => { setSelectedId(job.id); setView("detail"); }}><span className={`activity-dot ${job.status}`} /><div><strong>{job.name}</strong><small>{statusLabels[job.status]}{job.run_summary ? ` / ${job.run_summary.saved_records} record${job.run_summary.saved_records === 1 ? "" : "s"} saved` : ""}</small></div><time>{new Date(job.updated_at).toLocaleDateString()}</time></button>)}</div> : <div className="dashboard-empty"><strong>Your activity will appear here.</strong><p>Create an API and WebForge will show its discovery and extraction results here.</p></div>}</div><div className="dashboard-panel panel"><div className="dashboard-heading"><div><div className="section-kicker">STARTER IDEAS</div><h2>Build something useful</h2></div></div><div className="template-list"><button onClick={() => { setUserRequest("Track product name, price, availability, and unit price for Golden Delicious apples at Walmart."); setView("new"); }}><span>01</span><div><strong>Product price tracker</strong><small>Prices and availability from retailers</small></div><b>&gt;</b></button><button onClick={() => { setUserRequest("Create an API for upcoming hackathons with name, location, application deadline, event dates, and official URL."); setView("new"); }}><span>02</span><div><strong>Event directory</strong><small>Dates, locations, and deadlines</small></div><b>&gt;</b></button><button onClick={() => { setUserRequest("Create an API for restaurant menus with restaurant name, item name, price, dietary tags, and source URL."); setView("new"); }}><span>03</span><div><strong>Menu monitor</strong><small>Items, prices, and dietary information</small></div><b>&gt;</b></button></div></div></section>
           </> : view === "new" ? <><div className="hero-eyebrow"><span className="sparkle">*</span> NATURAL LANGUAGE TO API</div><h1>Describe the data.<br /><em>Get a live API.</em></h1><p className="hero-copy">Describe public web data in plain English. WebForge plans the fields, finds sources, extracts records, and serves them as JSON.</p></> : null}
           {view === "library" && <section className="library-panel panel">
@@ -292,7 +342,7 @@ const latestJob = jobs[0] || null;
             </section>
 
             {selected.run_summary && <div className="run-summary panel" aria-label="Latest run summary">
-              <strong>Latest run</strong>
+              <strong>Latest run{selected.run_summary.outcome === "partial_stopped" ? " / Partial data" : ""}</strong>
               <span>{selected.run_summary.saved_records} saved</span>
               <span>{selected.run_summary.skipped_sources} skipped</span>
               <span>{selected.run_summary.search_calls} searches</span>
@@ -343,9 +393,9 @@ const latestJob = jobs[0] || null;
             </section>
 
             <section className="api-section panel"><div><div className="section-kicker">04 / API</div><h2>API endpoints</h2><p>Copy the records URL to use the extracted JSON.</p></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{recordsPath}</code><button onClick={() => void copyEndpoint(recordsPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy</button></div></div></section>
+            </>}
             <section className="api-settings panel"><div><div className="section-kicker">05 / API SETTINGS</div><h2>Manage this API</h2><p>Rename it, set its refresh interval, or remove it from this workspace.</p></div><button className="ghost-button" onClick={openApiSettings}>Open settings</button></section>
-            {apiSettingsOpen && <section className="api-settings-editor panel" role="dialog" aria-modal="true" aria-label="API settings"><div className="settings-editor-heading"><div><div className="section-kicker">API SETTINGS</div><h2>{selected.name}</h2></div><button onClick={() => setApiSettingsOpen(false)} aria-label="Close API settings">x</button></div><label className="input-label" htmlFor="api-name">API NAME</label><input id="api-name" className="text-input" value={editName} onChange={(event) => setEditName(event.target.value)} /><label className="input-label settings-interval-label" htmlFor="api-interval">REFRESH INTERVAL <span>MINUTES / LEAVE BLANK FOR MANUAL</span></label><input id="api-interval" className="text-input interval-input" type="number" min="15" value={editInterval} onChange={(event) => setEditInterval(event.target.value)} placeholder="Manual" /><div className="settings-editor-actions"><button className="primary-button" onClick={() => void saveApiSettings()} disabled={busy || editName.trim().length < 3}>Save changes</button><button className={`danger-button ${deleteArmed ? "armed" : ""}`} onClick={() => deleteArmed ? void removeApi() : setDeleteArmed(true)} disabled={busy}>{deleteArmed ? "Click again to permanently delete" : "Delete API"}</button></div></section>}            </>}
-          </>}
+            {apiSettingsOpen && apiSettingsJobId === selected.id && <section className="api-settings-editor panel" role="dialog" aria-modal="true" aria-label="API settings"><div className="settings-editor-heading"><div><div className="section-kicker">API SETTINGS</div><h2>{selected.name}</h2></div><button onClick={() => setApiSettingsOpen(false)} aria-label="Close API settings">x</button></div><label className="input-label" htmlFor="api-name">API NAME</label><input id="api-name" className="text-input" value={editName} onChange={(event) => setEditName(event.target.value)} /><label className="input-label settings-interval-label" htmlFor="api-interval">REFRESH INTERVAL <span>MINUTES / LEAVE BLANK FOR MANUAL</span></label><input id="api-interval" className="text-input interval-input" type="number" min="15" value={editInterval} onChange={(event) => setEditInterval(event.target.value)} placeholder="Manual" /><div className="settings-editor-actions"><button className="primary-button" onClick={() => void saveApiSettings()} disabled={busy || editName.trim().length < 3}>Save changes</button><button className={`danger-button ${deleteArmed ? "armed" : ""}`} onClick={() => deleteArmed ? void removeApi() : setDeleteArmed(true)} disabled={busy}>{deleteArmed ? "Click again to permanently delete" : "Delete API"}</button></div></section>}          </>}
         </div>
       </main>
     </div>
