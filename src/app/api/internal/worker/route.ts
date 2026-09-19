@@ -14,8 +14,8 @@ export async function POST(request: Request) {
       !timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
-  const scheduled = enqueueDueRefreshes();
-  const run = claimNextRun();
+  const scheduled = await enqueueDueRefreshes();
+  const run = await claimNextRun();
   if (!run) return NextResponse.json({ scheduled, ran: false });
   const job = await runApiJob(run.jobId, undefined, undefined, undefined, { id: run.id, trigger: run.trigger });
   return NextResponse.json({ scheduled, ran: true, job_id: job.id, outcome: job.runSummary?.outcome });

@@ -4,14 +4,14 @@ WebForge turns a plain-English request for public web data into a JSON API. Open
 
 ## Run locally
 
-Requires Node.js 24 or newer, an OpenAI API key, and a Firecrawl API key.
+Requires Node.js 24 or newer, a MongoDB Atlas cluster, an OpenAI API key, and a Firecrawl API key.
 
 ```powershell
 npm install
-Copy-Item .env.example .env.local
+if (-not (Test-Path .env.local)) { Copy-Item .env.example .env.local }
 ```
 
-Set `OPENAI_API_KEY`, `FIRECRAWL_API_KEY`, and a long random `WEBFORGE_WORKER_TOKEN` in `.env.local`. For shared access or deployment, also set `WEBFORGE_ACCESS_TOKEN` to a different long random value. Start the web server and worker in separate terminals:
+Set `OPENAI_API_KEY`, `FIRECRAWL_API_KEY`, `MONGODB_URI`, and a long random `WEBFORGE_WORKER_TOKEN` in `.env.local`. Copy the Atlas Node.js driver connection string into `MONGODB_URI`, replacing the database username and password placeholders locally. Add your current IP in Atlas Network Access. Keep the full URI private and do not commit `.env.local`. Percent-encode reserved characters in the password when inserting it into the URI. For shared access or deployment, also set `WEBFORGE_ACCESS_TOKEN` to a different long random value. Start the web server and worker in separate terminals:
 
 ```powershell
 npm run dev
@@ -27,7 +27,7 @@ Open [http://localhost:3000](http://localhost:3000). Enter a request such as “
 
 For one item whose fields come from different sites, check **Combine sources into one record**. For example, request “iPhone 16 Pro display size from Apple and single-core benchmark score from Geekbench,” then select both fields. You can provide the two page URLs or let automatic discovery find a page for each field group. The planner can also select this mode when your request clearly calls for one item with complementary sources. Keep it off when you want a separate record per item or URL.
 
-`OPENAI_MODEL` defaults to `gpt-4.1-mini`. `WEBFORGE_DB_PATH` defaults to `.data/webforge.sqlite` under the project directory. The `.env.local` file and database are ignored by Git. The worker polls every five seconds, executes queued runs, and schedules due refreshes. Keep it running alongside the web server. `WEBFORGE_BASE_URL` can point the worker to a nondefault server address.
+`OPENAI_MODEL` defaults to `gpt-4.1-mini`. `MONGODB_DB_NAME` defaults to `webforge`. MongoDB Atlas is the only database backend; older local SQLite jobs are not automatically migrated. `.env.local` is ignored by Git. Run `npm run db:check` to verify the Atlas connection before starting the app. Run `npm run test:db` for MongoDB pipeline integration tests after adding `MONGODB_URI`; they create and remove a separate temporary database. Set `WEBFORGE_TEST_MONGODB_URI` if you want those tests to use a different cluster. The worker polls every five seconds, executes queued runs, and schedules due refreshes. Keep it running alongside the web server. `WEBFORGE_BASE_URL` can point the worker to a nondefault server address.
 
 ## Access
 
