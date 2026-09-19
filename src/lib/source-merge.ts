@@ -22,6 +22,7 @@ export function addCombinedSource(record: CombinedRecord, incoming: ApiRecordDat
   const additions: Array<[string, string | number | boolean]> = [];
   const conflicts: string[] = [];
   for (const [key, current] of Object.entries(record.data)) {
+    if (key === "source_url") continue;
     const value = incoming[key];
     if (value === null || value === undefined || value === "") continue;
     if (current !== null && /(?:^|_)(?:product_name|phone_name|item_name|model_name|model_version|asin|sku)$/.test(key) &&
