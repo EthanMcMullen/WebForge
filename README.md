@@ -17,7 +17,7 @@ Set `OPENAI_API_KEY` and `FIRECRAWL_API_KEY` in `.env.local`, then run:
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Enter a request such as “Create an API with the title, author, and publication date of recent articles about battery recycling.” Choose automatic discovery or supply up to five public page URLs. Click **Create API**. The app plans the fields, runs Firecrawl, shows saved records, and exposes a copyable records URL.
+Open [http://localhost:3000](http://localhost:3000). Enter a request such as “Create an API with the title, author, and publication date of recent articles about battery recycling.” Choose automatic discovery or supply up to five public page URLs. Click **Propose fields**, choose the fields you want in the JSON API, then click **Confirm fields and build API**. Firecrawl runs only after confirmation.
 
 `OPENAI_MODEL` defaults to `gpt-4.1-mini`. `WEBFORGE_DB_PATH` defaults to `.data/webforge.sqlite` under the project directory. The `.env.local` file and database are ignored by Git.
 
@@ -27,8 +27,9 @@ Open [http://localhost:3000](http://localhost:3000). Enter a request such as “
 | --- | --- | --- |
 | GET | `/api/config` | Reports which service keys are configured |
 | GET | `/api/jobs` | Lists jobs |
-| POST | `/api/jobs` | Plans a job with OpenAI |
-| GET | `/api/jobs/:id` | Returns job status and schema |
+| POST | `/api/jobs` | Plans a draft job with OpenAI; no Firecrawl call |
+| PATCH | `/api/jobs/:id/fields` | Confirms selected fields before extraction |
+| GET | `/api/jobs/:id` | Returns job status and confirmed schema |
 | GET | `/api/jobs/:id/schema` | Returns the record schema |
 | POST | `/api/jobs/:id/run` | Discovers and extracts records |
 | POST | `/api/jobs/:id/refresh` | Runs extraction again |
@@ -44,24 +45,28 @@ $body = @{
   refresh_interval = $null
 } | ConvertTo-Json -Depth 4
 $job = Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/jobs -ContentType application/json -Body $body
+$fields = @($job.job.proposed_schema.PSObject.Properties.Name | Where-Object { $_ -ne "source_url" } | Select-Object -First 2)
+$selection = @{ selected_fields = $fields } | ConvertTo-Json
+Invoke-RestMethod -Method Patch -Uri "http://localhost:3000/api/jobs/$($job.job.id)/fields" -ContentType application/json -Body $selection
 Invoke-RestMethod -Method Post -Uri "http://localhost:3000/api/jobs/$($job.job.id)/run"
 Invoke-RestMethod -Uri "http://localhost:3000/api/jobs/$($job.job.id)/records"
 ```
 
-For known pages, set `source_strategy.type` to `provided_urls` and supply `sources` as an array of public HTTP(S) URLs.
+For known pages, set `source_strategy.type` to `provided_urls` and supply `sources` as an array of public HTTP(S) URLs. A draft job cannot call `/run` or `/refresh` until fields are confirmed. After confirmation, field selection is locked for that job; create another job to use a different schema.
 
 A records response has `job_id`, `status`, `count`, and `records`. Each record includes `id`, `source_url`, `data`, and `extracted_at`. `data` contains every planned field, using `null` when the extracted value is unavailable. WebForge adds `source_url` from the actual page URL. Records remain available if a later refresh fails; the job status and error report the failure.
 
 ## How it works
 
 1. The dashboard sends the plain-English request to `POST /api/jobs`.
-2. OpenAI Responses plans the schema and focused search queries.
-3. Firecrawl Search discovers public candidate pages for automatic jobs and excludes known unsupported domains. Provided URL jobs skip search and never switch to other sources.
-4. Firecrawl Scrape's JSON format extracts a record using the planned field schema.
-5. WebForge checks the returned JSON shape, rejects all-null records, and saves each successful record immediately in SQLite.
-6. `GET /api/jobs/:id/records` serves the stored JSON.
+2. OpenAI Responses proposes a schema and search queries. The draft is saved with status `awaiting_fields`; no Firecrawl call is made.
+3. The user selects at least one proposed data field. `source_url` is always included. `PATCH /api/jobs/:id/fields` saves the confirmed schema.
+4. Firecrawl Search discovers public candidate pages for automatic jobs and excludes known unsupported domains. Provided URL jobs skip search and never switch to other sources.
+5. Firecrawl Scrape's JSON format extracts a record using only the confirmed field schema.
+6. WebForge checks the returned JSON shape, rejects all-null records, and saves each successful record immediately in SQLite.
+7. `GET /api/jobs/:id/records` serves the stored JSON.
 
-`planned` means a schema exists but the data run has not finished. `ready` means at least one record was saved. Other statuses show discovery, scraping, extraction, storage, or failure. A partial failure can leave the job `ready` with a concise warning. The latest run summary shows search, scrape, recovery, and skipped-source counts.
+`awaiting_fields` means OpenAI has proposed fields and the user must confirm a selection. `planned` means a confirmed schema exists but extraction has not finished. `ready` means at least one record was saved. Other statuses show discovery, scraping, extraction, storage, or failure. A partial failure can leave the job `ready` with a concise warning. The latest run summary shows search, scrape, recovery, and skipped-source counts.
 
 ## Current scope
 

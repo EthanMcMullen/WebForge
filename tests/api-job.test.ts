@@ -6,7 +6,7 @@ import { ApiRecordSchemaInput, CreateApiJobInput, cleanSourceUrls, normalizePubl
 
 test("API jobs support every pipeline lifecycle status", () => {
   assert.deepEqual(apiJobStatuses, [
-    "planning", "planned", "discovering", "scraping", "extracting", "storing", "ready", "failed",
+    "planning", "awaiting_fields", "planned", "discovering", "scraping", "extracting", "storing", "ready", "failed",
   ]);
 });
 
@@ -64,6 +64,14 @@ test("API responses use the public snake_case contract", () => {
   assert.equal(response.refresh_interval, 1440);
   assert.deepEqual(response.source_strategy.search_queries, job.sourceStrategy.searchQueries);
   assert.equal("userRequest" in response, false);
+  assert.deepEqual(response.proposed_schema, {});
+  const draft = toApiJobResponse({
+    ...job, status: "awaiting_fields", schema: {},
+    proposedSchema: { title: { type: "string" }, source_url: { type: "string" } },
+    schemaConfirmedAt: null,
+  });
+  assert.deepEqual(Object.keys(draft.proposed_schema), ["title", "source_url"]);
+  assert.deepEqual(draft.schema, {});
 });
 
 

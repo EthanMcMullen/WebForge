@@ -11,3 +11,19 @@
 .run-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 16px 20px; margin-bottom: 18px; color: var(--muted, #9ca3af); font-size: 13px; }
 .run-summary strong { color: #fff; }
 .run-summary small { flex-basis: 100%; color: #e9bd91; }
+
+.field-review{margin-top:28px;padding:26px 28px}
+.field-review h2{font-size:20px;margin:0 0 7px}
+.field-review>p{font-size:12px;color:#9299ac;line-height:1.5;margin:0 0 20px}
+.field-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-bottom:22px}
+.field-option{display:flex;align-items:flex-start;gap:11px;background:#10131e;border:1px solid #34394c;border-radius:9px;padding:13px;cursor:pointer;min-width:0}
+.field-option input{accent-color:#a58dff;margin-top:3px;flex:none}
+.field-option span{min-width:0}
+.field-option strong{display:block;font-size:12px;color:#eeeafa;overflow-wrap:anywhere}
+.field-option small{display:block;margin-top:5px;color:#989fb2;font-size:11px;line-height:1.45}
+.field-option.fixed{border-style:dashed;cursor:default;padding-left:37px}
+.schema-preview{background:#0b0e17;border:1px solid #34394c;border-radius:9px;color:#d1c8ff;padding:15px;max-height:260px;overflow:auto;font-size:11px;line-height:1.5;margin:0}
+.field-review-footer{border-top:1px solid #2d3140;margin-top:20px;padding-top:18px;display:flex;justify-content:space-between;align-items:center;gap:15px}
+.field-review-footer span{font-size:11px;color:#989fb2}
+.metric-status.awaiting_fields{color:#dfc17d}
+@media(max-width:720px){.field-review{padding:21px 17px}.field-options{grid-template-columns:1fr}.field-review-footer{align-items:stretch;flex-direction:column}}

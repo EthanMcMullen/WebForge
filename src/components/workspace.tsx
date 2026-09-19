@@ -8,6 +8,7 @@ type ApiRecordResponse = { id: string; job_id: string; source_url: string; data:
 
 const statusLabels: Record<ApiJobResponse["status"], string> = {
   planning: "Planning",
+  awaiting_fields: "Choose fields",
   planned: "Planned",
   discovering: "Discovering",
   scraping: "Scraping",
@@ -29,11 +30,21 @@ export function Workspace() {
   const [refreshInterval, setRefreshInterval] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [fieldSelections, setFieldSelections] = useState<Record<string, string[]>>({});
 
   const selected = useMemo(
     () => jobs.find((job) => job.id === selectedId) || null,
     [jobs, selectedId],
   );
+
+  const selectedFields = selected?.status === "awaiting_fields"
+    ? fieldSelections[selected.id] ?? Object.keys(selected.proposed_schema).filter((key) => key !== "source_url")
+    : [];
+
+  const previewSchema = selected?.status === "awaiting_fields"
+    ? Object.fromEntries(Object.entries(selected.proposed_schema)
+      .filter(([key]) => key === "source_url" || selectedFields.includes(key)))
+    : null;
 
   const loadJobs = useCallback(async (preferredId?: string) => {
     const response = await fetch("/api/jobs", { cache: "no-store" });
@@ -91,17 +102,7 @@ export function Workspace() {
         setMessage(result.job.error || "Planning failed.");
         return;
       }
-      if (!config?.extraction_ready) {
-        setMessage("API planned. Add FIRECRAWL_API_KEY to extract records.");
-        return;
-      }
-      const progress = window.setInterval(() => { void loadJobs(result.job!.id); }, 1500);
-      try {
-        const runResponse = await fetch(`/api/jobs/${result.job.id}/run`, { method: "POST" });
-        const runResult = await runResponse.json() as { job?: ApiJobResponse; error?: string };
-        await loadJobs(result.job.id);
-        setMessage(runResult.job?.error || runResult.error || (runResponse.ok ? "API records are ready." : "Extraction failed."));
-      } finally { window.clearInterval(progress); }
+      setMessage("Choose the fields below, then confirm to build the API.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not create API job.");
     } finally {
@@ -109,19 +110,48 @@ export function Workspace() {
     }
   }
 
-  async function refreshJob() {
-    if (!selected) return;
+  async function runJob(jobId: string, action: "run" | "refresh") {
+    const progress = window.setInterval(() => { void loadJobs(jobId); }, 1500);
+    try {
+      const response = await fetch(`/api/jobs/${jobId}/${action}`, { method: "POST" });
+      const result = await response.json() as { job?: ApiJobResponse; error?: string };
+      await loadJobs(jobId);
+      setMessage(result.job?.error || result.error || (response.ok ? "API records are ready." : "Extraction failed."));
+    } finally { window.clearInterval(progress); }
+  }
+
+  async function confirmFields() {
+    if (!selected || selected.status !== "awaiting_fields" || selectedFields.length === 0) return;
     setBusy(true);
     setMessage(null);
     try {
       const jobId = selected.id;
-      const progress = window.setInterval(() => { void loadJobs(jobId); }, 1500);
-      try {
-        const response = await fetch(`/api/jobs/${jobId}/refresh`, { method: "POST" });
-        const result = await response.json() as { job?: ApiJobResponse; error?: string };
-        await loadJobs(jobId);
-        setMessage(result.job?.error || result.error || (response.ok ? "Records refreshed." : "Refresh failed."));
-      } finally { window.clearInterval(progress); }
+      const response = await fetch(`/api/jobs/${jobId}/fields`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selected_fields: selectedFields }),
+      });
+      const result = await response.json() as { job?: ApiJobResponse; error?: string };
+      if (!response.ok || !result.job) throw new Error(result.error || "Could not confirm fields.");
+      await loadJobs(jobId);
+      if (!config?.extraction_ready) {
+        setMessage("Fields saved. Add FIRECRAWL_API_KEY, then click Run now.");
+        return;
+      }
+      await runJob(jobId, "run");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not build the API.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshJob() {
+    if (!selected || selected.status === "awaiting_fields") return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await runJob(selected.id, selected.status === "planned" ? "run" : "refresh");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Refresh failed.");
     } finally {
@@ -166,7 +196,7 @@ export function Workspace() {
           <p className="hero-copy">Describe public web data in plain English. WebForge plans the fields, finds sources, extracts records, and serves them as JSON.</p>
 
           <section className="composer panel">
-            <div className="panel-heading"><span className="step-number">01</span><div><h2>Create an API job</h2><p>Each request creates a schema and extracts live records from public pages.</p></div></div>
+            <div className="panel-heading"><span className="step-number">01</span><div><h2>Plan an API job</h2><p>OpenAI proposes fields first. You choose which data to include before extraction begins.</p></div></div>
             <label className="input-label" htmlFor="job-name">NAME <span>OPTIONAL</span></label>
             <input id="job-name" className="text-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Generated automatically when omitted" />
             <label className="input-label request-label" htmlFor="request">USER REQUEST</label>
@@ -182,14 +212,14 @@ export function Workspace() {
 
             {strategy === "provided_urls" && <div className="seed-block"><label className="input-label" htmlFor="sources">SOURCES <span>ONE PUBLIC URL PER LINE</span></label><textarea id="sources" rows={3} value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="https://example.com/source" /></div>}
             <div className="interval-row"><label className="input-label" htmlFor="interval">REFRESH INTERVAL <span>MINUTES Â· OPTIONAL Â· MANUAL REFRESH IN MVP</span></label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
-            <div className="composer-footer"><span>Request â†’ plan â†’ Firecrawl â†’ records â†’ API</span><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready}>{busy ? "Creating APIâ€¦" : "Create API"}<span>â†—</span></button></div>
+            <div className="composer-footer"><span>Request â†’ plan â†’ Firecrawl â†’ records â†’ API</span><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready}>{busy ? "Planningâ€¦" : "Propose fields"}<span>â†—</span></button></div>
           </section>
 
           {selected && <>
             <section className="overview-grid">
               <div className="metric panel"><span>JOB</span><strong>{selected.name}</strong><small>{selected.id}</small></div>
               <div className="metric panel"><span>STATUS</span><strong className={`metric-status ${selected.status}`}>{statusLabels[selected.status]}</strong><small>Updated {new Date(selected.updated_at).toLocaleString()}</small></div>
-              <div className="metric panel"><span>SCHEMA FIELDS</span><strong>{Object.keys(selected.schema).length}</strong><small>{records.length} records stored</small></div>
+              <div className="metric panel"><span>SCHEMA FIELDS</span><strong>{Object.keys(selected.status === "awaiting_fields" ? selected.proposed_schema : selected.schema).length}</strong><small>{selected.status === "awaiting_fields" ? "Awaiting your selection" : `${records.length} records stored`}</small></div>
               <div className="metric panel"><span>REFRESH</span><strong>{selected.refresh_interval ? `${selected.refresh_interval}m` : "Manual"}</strong><small>{selected.source_strategy.type.replaceAll("_", " ")} Â· manual run</small></div>
             </section>
 
@@ -205,17 +235,47 @@ export function Workspace() {
 
             {selected.error && <div className="error-banner job-error">{selected.error}</div>}
 
+            {selected.status === "awaiting_fields" && <section className="field-review panel">
+              <div className="section-kicker">02 / REVIEW FIELDS</div>
+              <h2>Choose your API fields</h2>
+              <p>OpenAI proposed these data fields. Select what each record should contain before Firecrawl runs.</p>
+              <div className="field-options">
+                {Object.entries(selected.proposed_schema).filter(([key]) => key !== "source_url").map(([key, field]) => (
+                  <label className="field-option" key={key}>
+                    <input type="checkbox" checked={selectedFields.includes(key)}
+                      onChange={(event) => setFieldSelections((choices) => ({
+                        ...choices,
+                        [selected.id]: event.target.checked
+                          ? [...selectedFields, key] : selectedFields.filter((item) => item !== key),
+                      }))} />
+                    <span><strong>{key}</strong><small>{field.type} - {field.description || "No description"}</small></span>
+                  </label>
+                ))}
+                <div className="field-option fixed"><span><strong>source_url</strong><small>Always included so each record links to its source.</small></span></div>
+              </div>
+              <div className="input-label">JSON SCHEMA PREVIEW</div>
+              <pre className="schema-preview" aria-label="Selected JSON schema preview">{JSON.stringify(previewSchema, null, 2)}</pre>
+              <div className="field-review-footer">
+                <span>{selectedFields.length} data field{selectedFields.length === 1 ? "" : "s"} selected</span>
+                <button className="primary-button" onClick={() => void confirmFields()} disabled={busy || selectedFields.length === 0}>
+                  {busy ? "Building API..." : "Confirm fields and build API"}
+                </button>
+              </div>
+            </section>}
+
+            {selected.status !== "awaiting_fields" && <>
             <section className="records-section panel">
               <div className="section-header"><div><div className="section-kicker">02 / JOB DEFINITION</div><h2>Record schema</h2><p>Firecrawl extracts these fields from each source page.</p></div></div>
               <div className="table-wrap"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>{Object.entries(selected.schema).map(([key, field]) => <tr key={key}><td><code>{key}</code></td><td><span className="status-pill sample">{field.type}</span></td><td>{field.description || "â€”"}</td></tr>)}</tbody></table></div>
             </section>
 
             <section className="records-section panel">
-              <div className="section-header"><div><div className="section-kicker">03 / LIVE DATA</div><h2>Records</h2><p>One record per source page. Missing values appear as null.</p></div><button className="ghost-button" onClick={() => void refreshJob()} disabled={busy || !config?.extraction_ready}>{busy ? "Refreshingâ€¦" : "Refresh now"}</button></div>
+              <div className="section-header"><div><div className="section-kicker">03 / LIVE DATA</div><h2>Records</h2><p>One record per source page. Missing values appear as null.</p></div><button className="ghost-button" onClick={() => void refreshJob()} disabled={busy || !config?.extraction_ready}>{busy ? "Running..." : selected.status === "planned" ? "Run now" : "Refresh now"}</button></div>
               {records.length ? <div className="table-wrap"><table><thead><tr>{Object.keys(selected.schema).map((key) => <th key={key}>{key}</th>)}<th>Extracted</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}>{Object.keys(selected.schema).map((key) => <td key={key}>{key === "source_url" ? <a href={record.source_url} target="_blank" rel="noreferrer">Source â†—</a> : record.data[key] === null || record.data[key] === undefined ? "null" : String(record.data[key])}</td>)}<td>{new Date(record.extracted_at).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="empty-records">No records yet. Run or refresh this job after configuring Firecrawl.</p>}
             </section>
 
             <section className="api-section panel"><div><div className="section-kicker">04 / API</div><h2>API endpoints</h2><p>Copy the records URL to use the extracted JSON.</p></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{recordsPath}</code><button onClick={() => void copyEndpoint(recordsPath)}>Copy â†—</button></div><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy â†—</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy â†—</button></div></div></section>
+            </>}
           </>}
         </div>
       </main>

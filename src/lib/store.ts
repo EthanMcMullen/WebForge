@@ -3,9 +3,10 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { ApiJob, ApiJobStatus, ApiRecord, ApiRecordData, ApiRecordSchema, RunOutcome, RunSummary, SourceStrategy } from "./types";
+import { selectProposedFields } from "./field-selection";
 
 const dbPath = process.env.WEBFORGE_DB_PATH || join(process.cwd(), ".data", "webforge.sqlite");
-declare global { var webforgeDatabase: DatabaseSync | undefined; var webforgeSchemaReady: boolean | undefined; }
+declare global { var webforgeDatabase: DatabaseSync | undefined; var webforgeSchemaReady: boolean | undefined; var webforgeSchemaVersion: number | undefined; }
 function database(): DatabaseSync {
   if (!globalThis.webforgeDatabase) {
     mkdirSync(dirname(dbPath), { recursive: true });
@@ -46,13 +47,24 @@ function database(): DatabaseSync {
     db.exec("UPDATE api_jobs SET status = 'planned' WHERE status = 'ready' AND NOT EXISTS (SELECT 1 FROM api_records WHERE api_records.job_id = api_jobs.id)");
     globalThis.webforgeSchemaReady = true;
   }
+  if (globalThis.webforgeSchemaVersion !== 2) {
+    const columns = db.prepare("PRAGMA table_info(api_jobs)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "proposed_schema_json")) {
+      db.exec("ALTER TABLE api_jobs ADD COLUMN proposed_schema_json TEXT NOT NULL DEFAULT '{}'");
+    }
+    if (!columns.some((column) => column.name === "schema_confirmed_at")) {
+      db.exec("ALTER TABLE api_jobs ADD COLUMN schema_confirmed_at TEXT");
+    }
+    db.exec("UPDATE api_jobs SET proposed_schema_json = schema_json, schema_confirmed_at = updated_at WHERE proposed_schema_json = '{}' AND schema_json <> '{}'");
+    globalThis.webforgeSchemaVersion = 2;
+  }
   return db;
 }
 type ApiJobRow = {
   id: string; name: string; user_request: string; status: ApiJobStatus;
   schema_json: string; source_strategy_json: string; sources_json: string;
   refresh_interval: number | null; error: string | null; created_at: string; updated_at: string;
-  blocked_domains_json: string;
+  blocked_domains_json: string; proposed_schema_json: string; schema_confirmed_at: string | null;
 };
 type RunRow = {
   id: string; job_id: string; started_at: string; finished_at: string | null;
@@ -92,6 +104,8 @@ function mapApiJob(row: ApiJobRow): ApiJob {
     sources: JSON.parse(row.sources_json) as string[], refreshInterval: row.refresh_interval,
     error: row.error, createdAt: row.created_at, updatedAt: row.updated_at,
     blockedDomains: JSON.parse(row.blocked_domains_json) as string[],
+    proposedSchema: JSON.parse(row.proposed_schema_json) as ApiRecordSchema,
+    schemaConfirmedAt: row.schema_confirmed_at,
     runSummary: getLatestRun(row.id),
   };
 }
@@ -105,17 +119,46 @@ export function getApiJob(id: string): ApiJob | null {
 export function saveApiJob(job: ApiJob): void {
   database().prepare(`
     INSERT INTO api_jobs (id, name, user_request, status, schema_json, source_strategy_json,
-      sources_json, refresh_interval, error, created_at, updated_at, blocked_domains_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      sources_json, refresh_interval, error, created_at, updated_at, blocked_domains_json,
+      proposed_schema_json, schema_confirmed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name, user_request = excluded.user_request, status = excluded.status,
       schema_json = excluded.schema_json, source_strategy_json = excluded.source_strategy_json,
       sources_json = excluded.sources_json, refresh_interval = excluded.refresh_interval,
       error = excluded.error, updated_at = excluded.updated_at,
-      blocked_domains_json = excluded.blocked_domains_json
+      blocked_domains_json = excluded.blocked_domains_json,
+      proposed_schema_json = excluded.proposed_schema_json,
+      schema_confirmed_at = excluded.schema_confirmed_at
   `).run(job.id, job.name, job.userRequest, job.status, JSON.stringify(job.schema),
     JSON.stringify(job.sourceStrategy), JSON.stringify(job.sources), job.refreshInterval,
-    job.error, job.createdAt, job.updatedAt, JSON.stringify(job.blockedDomains || []));
+    job.error, job.createdAt, job.updatedAt, JSON.stringify(job.blockedDomains || []),
+    JSON.stringify(job.proposedSchema || job.schema), job.schemaConfirmedAt || null);
+}
+export function confirmApiJobFields(jobId: string, selectedFields: string[]): ApiJob {
+  const db = database();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const row = db.prepare("SELECT * FROM api_jobs WHERE id = ?").get(jobId) as ApiJobRow | undefined;
+    if (!row) throw new Error("API job not found.");
+    if (row.status !== "awaiting_fields" || row.schema_confirmed_at) {
+      throw new Error("Field selection is closed for this job.");
+    }
+    const recordCount = db.prepare("SELECT COUNT(*) AS count FROM api_records WHERE job_id = ?").get(jobId) as { count: number };
+    if (recordCount.count) throw new Error("Fields cannot change after records have been saved.");
+    const proposal = JSON.parse(row.proposed_schema_json) as ApiRecordSchema;
+    const schema = selectProposedFields(proposal, selectedFields);
+    const now = new Date().toISOString();
+    db.prepare("UPDATE api_jobs SET schema_json = ?, schema_confirmed_at = ?, status = 'planned', error = NULL, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(schema), now, now, jobId);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  const job = getApiJob(jobId);
+  if (!job) throw new Error("API job not found.");
+  return job;
 }
 type ApiRecordRow = { id: string; job_id: string; source_url: string; data_json: string; extracted_at: string };
 export function countApiRecords(jobId: string): number {

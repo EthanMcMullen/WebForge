@@ -1,4 +1,4 @@
-export const apiJobStatuses = ["planning", "planned", "discovering", "scraping", "extracting", "storing", "ready", "failed"] as const;
+export const apiJobStatuses = ["planning", "awaiting_fields", "planned", "discovering", "scraping", "extracting", "storing", "ready", "failed"] as const;
 export type ApiJobStatus = (typeof apiJobStatuses)[number];
 export type ApiFieldType = "string" | "number" | "integer" | "boolean";
 export type SourceStrategyType = "automatic" | "provided_urls";
@@ -19,12 +19,15 @@ export interface ApiJob {
   schema: ApiRecordSchema; sourceStrategy: SourceStrategy; sources: string[];
   refreshInterval: number | null; error: string | null; createdAt: string; updatedAt: string;
   blockedDomains?: string[]; runSummary?: RunSummary | null;
+  proposedSchema?: ApiRecordSchema; schemaConfirmedAt?: string | null;
 }
 export interface ApiJobResponse {
   id: string; name: string; user_request: string; status: ApiJobStatus;
   schema: ApiRecordSchema; source_strategy: { type: SourceStrategyType; search_queries: string[] };
   sources: string[]; refresh_interval: number | null; error: string | null;
-  created_at: string; updated_at: string; run_summary: {
+  created_at: string; updated_at: string;
+  proposed_schema: ApiRecordSchema; schema_confirmed_at: string | null;
+  run_summary: {
     search_calls: number; scrape_calls: number; recovery_calls: number;
     saved_records: number; skipped_sources: number; outcome: RunOutcome; stop_reason: string | null;
     started_at: string; finished_at: string | null;
@@ -43,6 +46,8 @@ export function toApiJobResponse(job: ApiJob): ApiJobResponse {
     source_strategy: { type: job.sourceStrategy.type, search_queries: job.sourceStrategy.searchQueries },
     sources: job.sources, refresh_interval: job.refreshInterval, error: job.error,
     created_at: job.createdAt, updated_at: job.updatedAt,
+    proposed_schema: job.status === "awaiting_fields" ? (job.proposedSchema || {}) : {},
+    schema_confirmed_at: job.schemaConfirmedAt || null,
     run_summary: run ? {
       search_calls: run.searchCalls, scrape_calls: run.scrapeCalls, recovery_calls: run.recoveryCalls,
       saved_records: run.savedRecords, skipped_sources: run.skippedSources,

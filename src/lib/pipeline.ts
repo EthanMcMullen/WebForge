@@ -16,7 +16,7 @@ export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
   }
   const job: ApiJob = {
     id: crypto.randomUUID(), name: input.name || "Planning API job", userRequest: input.user_request,
-    status: "planning", schema: {},
+    status: "planning", schema: {}, proposedSchema: {}, schemaConfirmedAt: null,
     sourceStrategy: { type: input.source_strategy.type, searchQueries: input.source_strategy.search_queries },
     sources, refreshInterval: input.refresh_interval, error: null, createdAt: now, updatedAt: now,
     blockedDomains: [],
@@ -25,9 +25,9 @@ export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
   try {
     const plan = await planApiJob(job.userRequest);
     job.name = input.name || plan.name;
-    job.schema = plan.schema;
+    job.proposedSchema = plan.schema;
     if (job.sourceStrategy.type === "automatic") job.sourceStrategy.searchQueries = plan.searchQueries;
-    job.status = "planned";
+    job.status = "awaiting_fields";
   } catch (error) {
     job.status = "failed";
     job.error = error instanceof Error ? error.message : "Planning failed.";
@@ -54,7 +54,8 @@ export async function runApiJob(
 ): Promise<ApiJob> {
   const job = getApiJob(id);
   if (!job) throw new Error("API job not found.");
-  if (!Object.keys(job.schema).length) throw new Error("This job has no planned schema.");
+  if (!job.schemaConfirmedAt) throw new Error("Confirm the proposed fields before running Firecrawl.");
+  if (!Object.keys(job.schema).length) throw new Error("This job has no confirmed schema.");
   if (runningJobs.has(id)) throw new Error("This job is already running.");
   runningJobs.add(id);
   const startMs = Date.now();

@@ -32,6 +32,10 @@ export const CreateApiJobInput = z.object({
 
 export type CreateApiJobData = z.infer<typeof CreateApiJobInput>;
 
+export const ConfirmApiJobFieldsInput = z.object({
+  selected_fields: z.array(z.string().regex(/^[a-z][a-z0-9_]*$/)).min(1).max(19),
+}).strict();
+
 export const UpdateApiJobStatusInput = z.object({
   status: z.enum(apiJobStatuses),
   error: z.string().trim().max(1000).nullable().optional(),
