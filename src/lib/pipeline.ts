@@ -8,6 +8,7 @@ import { DEFAULT_BLOCKED_DOMAINS, classifySourceError, domainOf, filterCandidate
 import { RUN_LIMITS, canRecover, canSearch, withinDeadline } from "./run-budget";
 import { recoverSearchQuery, validateRecoveryDecision, type RecoveryInput, type RecoveryDecision } from "./source-recovery";
 import { reviewSourceCandidates } from "./source-review";
+import { presentRunResult } from "./run-presentation";
 
 export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
   const now = new Date().toISOString();
@@ -233,10 +234,13 @@ export async function runApiJob(
     summary.finishedAt = new Date().toISOString();
     const expectedCap = stopReason === `Stopped at the ${RUN_LIMITS.scrapes}-scrape per-run limit.` &&
       summary.savedRecords > 0 && errors.length === 0;
-    summary.outcome = hasRecords ? (stopReason && !expectedCap || errors.length ? "partial_stopped" : "ready") : "failed";
-    summary.stopReason = stopReason || (errors.length ? `${errors.length} source(s) skipped or failed.` : null);
-    const warning = [expectedCap ? null : summary.stopReason, ...errors.slice(0, 3)].filter(Boolean).join(" ");
-    setStatus(job, hasRecords ? "ready" : "failed", warning || (hasRecords ? null : "No usable records were extracted."));
+    const presentation = presentRunResult({
+      automatic, hasRecords, savedRecords: summary.savedRecords, stopReason, errors, expectedCap,
+    });
+    summary.outcome = presentation.outcome;
+    summary.stopReason = presentation.stopReason;
+    setStatus(job, hasRecords ? "ready" : "failed",
+      presentation.warning || (hasRecords ? null : "No usable records were extracted."));
     saveRunSummary(summary);
     job.runSummary = summary;
     runningJobs.delete(id);

@@ -3,7 +3,7 @@ import type { SourceCandidate, SourceFailureCode } from "./types.ts";
 
 export const DEFAULT_BLOCKED_DOMAINS = ["instagram.com", "facebook.com"];
 const LIST_PATH = /\/(search|search-results|category|categories|collections|tags?)\/?$/i;
-const KNOWN_CATEGORY_PATH = /^\/c\/kp\//i;
+const KNOWN_CATEGORY_PATH = /^\/c\/(?:kp|brand)\//i;
 const MARKDOWN_LINK = /\[([^\]]{3,200})\]\((https?:\/\/[^\s)]+)\)/g;
 
 export function domainOf(value: string): string | null {

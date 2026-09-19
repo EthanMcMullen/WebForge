@@ -13,6 +13,7 @@ test("unsupported social domains are skipped before paid scraping", () => {
     { url: "https://facebook.com/post/example" },
     { url: "https://example.org/search" },
     { url: "https://www.walmart.com/c/kp/golden-delicious", title: "Golden Delicious" },
+    { url: "https://business.walmart.com/c/brand/good-apple", title: "Good Apple Brand" },
     { url: "https://example.org/item/one", title: "One" },
     { url: "https://example.org/item/one#fragment" },
   ], ["instagram.com", "facebook.com"], seen, 8);
