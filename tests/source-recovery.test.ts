@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { classifySourceError, filterCandidates, isBlockedDomain } from "../src/lib/source-support.ts";
 import { missingPlannedQueries, prioritizeSearchBatches } from "../src/lib/discovery-plan.ts";
-import { RUN_LIMITS, canRecover, canScrape, canSearch, plannedSearchQueries } from "../src/lib/run-budget.ts";
+import { RUN_LIMITS, canRecover, canScrape, canSearch, plannedSearchQueries, runLimitsForSearchDepth } from "../src/lib/run-budget.ts";
 import { validateRecoveryDecision, type RecoveryInput } from "../src/lib/source-recovery-validation.ts";
 import { normalizeExtractedData, verifyPriceEvidence } from "../src/lib/extraction.ts";
 import { selectReviewedCandidates } from "../src/lib/source-review-validation.ts";
@@ -98,17 +98,25 @@ test("request budgets prevent extra recovery and scrape calls", () => {
   const now = Date.now();
   assert.equal(RUN_LIMITS.searches, 6);
   assert.equal(RUN_LIMITS.plannedSearches, 5);
-  assert.equal(RUN_LIMITS.scrapes, 5);
+  assert.equal(RUN_LIMITS.scrapes, 12);
+  assert.equal(RUN_LIMITS.candidates, 12);
   assert.equal(RUN_LIMITS.recoveryCalls, 1);
   assert.equal(canSearch(6, now), false);
   assert.equal(canScrape(4, 0, 0, now), true);
-  assert.equal(canScrape(5, 0, 0, now), false);
+  assert.equal(canScrape(5, 0, 0, now), true);
+  assert.equal(canScrape(12, 0, 0, now), false);
   assert.equal(canScrape(1, 5, 5, now), false);
   assert.equal(canRecover(1, 2, 0, 0, 2, 2, now), true);
   assert.equal(canRecover(1, 2, 0, 1, 0, 0, now), false);
   assert.equal(canRecover(1, 2, 1, 0, 2, 2, now), false);
   assert.equal(canRecover(1, 2, 0, 0, 5, 5, now), false);
   assert.equal(canRecover(1, 2, 0, 0, 0, 0, now - RUN_LIMITS.durationMs - 1), false);
+});
+
+test("search depth maps loose record targets to bounded paid calls", () => {
+  assert.deepEqual(runLimitsForSearchDepth("focused"), { ...RUN_LIMITS, searches: 3, plannedSearches: 2, scrapes: 3, candidates: 3 });
+  assert.deepEqual(runLimitsForSearchDepth("balanced"), { ...RUN_LIMITS, searches: 5, plannedSearches: 4, scrapes: 6, candidates: 6 });
+  assert.deepEqual(runLimitsForSearchDepth("deep"), RUN_LIMITS);
 });
 
 

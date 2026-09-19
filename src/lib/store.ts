@@ -2,7 +2,7 @@ import "server-only";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { ApiJob, ApiJobStatus, ApiRecord, ApiRecordData, ApiRecordSchema, RunOutcome, RunSummary, SourceStrategy } from "./types";
+import type { ApiJob, ApiJobStatus, ApiRecord, ApiRecordData, ApiRecordSchema, RunOutcome, RunSummary, SearchDepth, SourceStrategy } from "./types";
 import { selectProposedFields } from "./field-selection";
 
 const dbPath = process.env.WEBFORGE_DB_PATH || join(process.cwd(), ".data", "webforge.sqlite");
@@ -79,6 +79,13 @@ function database(): DatabaseSync {
     if (!recordColumns.some((column) => column.name === "field_sources_json")) db.exec("ALTER TABLE api_records ADD COLUMN field_sources_json TEXT");
     globalThis.webforgeSchemaVersion = 4;
   }
+  if (!globalThis.webforgeSchemaVersion || globalThis.webforgeSchemaVersion < 5) {
+    const jobColumns = db.prepare("PRAGMA table_info(api_jobs)").all() as Array<{ name: string }>;
+    if (!jobColumns.some((column) => column.name === "search_depth")) {
+      db.exec("ALTER TABLE api_jobs ADD COLUMN search_depth TEXT NOT NULL DEFAULT 'balanced'");
+    }
+    globalThis.webforgeSchemaVersion = 5;
+  }
   return db;
 }
 type ApiJobRow = {
@@ -87,7 +94,7 @@ type ApiJobRow = {
   refresh_interval: number | null; error: string | null; created_at: string; updated_at: string;
   blocked_domains_json: string; proposed_schema_json: string; schema_confirmed_at: string | null;
   next_refresh_at: string | null; refresh_failures: number; refresh_paused: number;
-  combine_sources: number;
+  combine_sources: number; search_depth: SearchDepth;
 };
 type RunRow = {
   id: string; job_id: string; started_at: string; finished_at: string | null;
@@ -130,6 +137,7 @@ function mapApiJob(row: ApiJobRow): ApiJob {
     id: row.id, name: row.name, userRequest: row.user_request, status: row.status,
     schema: JSON.parse(row.schema_json) as ApiRecordSchema,
     combineSources: Boolean(row.combine_sources),
+    searchDepth: row.search_depth,
     sourceStrategy: JSON.parse(row.source_strategy_json) as SourceStrategy,
     sources: JSON.parse(row.sources_json) as string[], refreshInterval: row.refresh_interval,
     error: row.error, createdAt: row.created_at, updatedAt: row.updated_at,
@@ -151,8 +159,8 @@ export function saveApiJob(job: ApiJob): void {
   database().prepare(`
     INSERT INTO api_jobs (id, name, user_request, status, schema_json, source_strategy_json,
       sources_json, refresh_interval, error, created_at, updated_at, blocked_domains_json,
-      proposed_schema_json, schema_confirmed_at, combine_sources)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      proposed_schema_json, schema_confirmed_at, combine_sources, search_depth)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name, user_request = excluded.user_request, status = excluded.status,
       schema_json = excluded.schema_json, source_strategy_json = excluded.source_strategy_json,
@@ -161,11 +169,12 @@ export function saveApiJob(job: ApiJob): void {
       blocked_domains_json = excluded.blocked_domains_json,
       proposed_schema_json = excluded.proposed_schema_json,
       schema_confirmed_at = excluded.schema_confirmed_at,
-      combine_sources = excluded.combine_sources
+      combine_sources = excluded.combine_sources,
+      search_depth = excluded.search_depth
   `).run(job.id, job.name, job.userRequest, job.status, JSON.stringify(job.schema),
     JSON.stringify(job.sourceStrategy), JSON.stringify(job.sources), job.refreshInterval,
     job.error, job.createdAt, job.updatedAt, JSON.stringify(job.blockedDomains || []),
-    JSON.stringify(job.proposedSchema || job.schema), job.schemaConfirmedAt || null, job.combineSources ? 1 : 0);
+    JSON.stringify(job.proposedSchema || job.schema), job.schemaConfirmedAt || null, job.combineSources ? 1 : 0, job.searchDepth);
 }
 export function saveApiJobProgress(job: ApiJob): void {
   const result = database().prepare(`UPDATE api_jobs SET status = ?, error = ?, updated_at = ?,
@@ -335,15 +344,15 @@ export function saveCombinedApiRecord(jobId: string, record: ApiRecord): void {
 const activeStatuses = ["planning", "queued", "discovering", "scraping", "extracting", "storing"];
 const activeSql = activeStatuses.map(() => "?").join(", ");
 
-export function updateApiJobSettings(jobId: string, input: { name?: string; refreshInterval?: number | null }): ApiJob {
+export function updateApiJobSettings(jobId: string, input: { name?: string; refreshInterval?: number | null; searchDepth?: SearchDepth }): ApiJob {
   const job = getApiJob(jobId);
   if (!job) throw new Error("API job not found.");
   const now = new Date().toISOString();
   const interval = input.refreshInterval === undefined ? job.refreshInterval : input.refreshInterval;
   const next = interval ? new Date(Date.now() + interval * 60_000).toISOString() : null;
-  const result = database().prepare(`UPDATE api_jobs SET name = ?, refresh_interval = ?, next_refresh_at = ?, refresh_paused = 0, refresh_failures = 0, updated_at = ?
+  const result = database().prepare(`UPDATE api_jobs SET name = ?, refresh_interval = ?, search_depth = ?, next_refresh_at = ?, refresh_paused = 0, refresh_failures = 0, updated_at = ?
     WHERE id = ? AND status NOT IN (${activeSql})`)
-    .run(input.name ?? job.name, interval, next, now, jobId, ...activeStatuses);
+    .run(input.name ?? job.name, interval, input.searchDepth ?? job.searchDepth, next, now, jobId, ...activeStatuses);
   if (!result.changes) throw new Error("This API is running. Wait for the run to finish before changing settings.");
   const updated = getApiJob(jobId);
   if (!updated) throw new Error("API job not found.");

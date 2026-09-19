@@ -18,6 +18,7 @@ test("API job input applies safe defaults", () => {
   assert.deepEqual(input.sources, []);
   assert.equal(input.refresh_interval, null);
   assert.equal(input.combine_sources, false);
+  assert.equal(input.search_depth, "balanced");
 });
 
 test("provided URL strategy requires sources", () => {
@@ -54,6 +55,7 @@ test("API responses use the public snake_case contract", () => {
     status: "ready",
     schema: { title: { type: "string" }, source_url: { type: "string" } },
     sourceStrategy: { type: "automatic", searchQueries: ["public company cybersecurity incidents"] },
+    searchDepth: "deep",
     sources: [],
     refreshInterval: 1440,
     error: null,
@@ -64,6 +66,7 @@ test("API responses use the public snake_case contract", () => {
   assert.equal(response.user_request, job.userRequest);
   assert.equal(response.refresh_interval, 1440);
   assert.equal(response.combine_sources, false);
+  assert.equal(response.search_depth, "deep");
   assert.deepEqual(response.source_strategy.search_queries, job.sourceStrategy.searchQueries);
   assert.equal("userRequest" in response, false);
   assert.deepEqual(response.proposed_schema, {});

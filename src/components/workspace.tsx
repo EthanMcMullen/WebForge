@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ApiJobResponse, SourceStrategyType } from "@/lib/types";
+import Link from "next/link";
+import type { ApiJobResponse, SearchDepth, SourceStrategyType } from "@/lib/types";
 
 type Config = { planner_ready: boolean; extraction_ready: boolean; missing: string[] };
 type ApiRecordResponse = { id: string; job_id: string; source_url: string; source_urls: string[];
@@ -85,6 +86,12 @@ type DemoKey = keyof typeof demoPatterns;
 
 type WorkspaceView = "home" | "new" | "library" | "detail";
 
+const searchDepthOptions: Array<{ value: SearchDepth; label: string; range: string; combinedRange: string; hint: string }> = [
+  { value: "focused", label: "Focused", range: "About 1–3 records", combinedRange: "Up to 3 source pages", hint: "2 searches · 3 scrapes max" },
+  { value: "balanced", label: "Balanced", range: "About 3–6 records", combinedRange: "Up to 6 source pages", hint: "4 searches · 6 scrapes max" },
+  { value: "deep", label: "Deep", range: "Up to 12 records", combinedRange: "Up to 12 source pages", hint: "5 searches · 12 scrapes max" },
+];
+
 export function Workspace() {
   const [jobs, setJobs] = useState<ApiJobResponse[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -98,6 +105,7 @@ export function Workspace() {
   const [accessMessage, setAccessMessage] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editInterval, setEditInterval] = useState("");
+  const [editSearchDepth, setEditSearchDepth] = useState<SearchDepth>("balanced");
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
   const [records, setRecords] = useState<ApiRecordResponse[]>([]);
@@ -105,6 +113,7 @@ export function Workspace() {
   const [name, setName] = useState("");
   const [userRequest, setUserRequest] = useState("");
   const [strategy, setStrategy] = useState<SourceStrategyType>("automatic");
+  const [searchDepth, setSearchDepth] = useState<SearchDepth>("balanced");
   const [combineSources, setCombineSources] = useState(false);
   const [sourceText, setSourceText] = useState("");
   const [refreshInterval, setRefreshInterval] = useState("");
@@ -219,6 +228,7 @@ export function Workspace() {
           source_strategy: { type: strategy, search_queries: [] },
           sources,
           combine_sources: combineSources,
+          search_depth: searchDepth,
           refresh_interval: refreshInterval ? Number(refreshInterval) : null,
         }),
       });
@@ -299,6 +309,7 @@ export function Workspace() {
     setApiSettingsJobId(selected.id);
     setEditName(selected.name);
     setEditInterval(selected.refresh_interval ? String(selected.refresh_interval) : "");
+    setEditSearchDepth(selected.search_depth);
     setDeleteArmed(false);
     setApiSettingsOpen(true);
   }
@@ -310,7 +321,7 @@ export function Workspace() {
     try {
       const response = await fetch(`/api/jobs/${targetId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: editName.trim(), refresh_interval: editInterval ? Number(editInterval) : null }),
+        body: JSON.stringify({ name: editName.trim(), refresh_interval: editInterval ? Number(editInterval) : null, search_depth: editSearchDepth }),
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not save API settings.");
@@ -380,6 +391,7 @@ export function Workspace() {
         <button className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => { setSelectedId(null); setView("home"); }}><span className="nav-icon">H</span> Home</button>
         <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => setView("library")}><span className="nav-icon">L</span> Library</button>
         <button className={`nav-item ${view === "new" ? "active" : ""}`} onClick={() => { setSelectedId(null); setView("new"); }}><span className="nav-icon">+</span> New API</button>
+        <Link className="nav-item nav-link" href="/cli"><span className="nav-icon">&gt;_</span> CLI Download</Link>
         <div className="dataset-list">
           {jobs.length ? jobs.map((job) => (
             <button key={job.id} className={`dataset-item ${selectedId === job.id && view === "detail" ? "selected" : ""}`} onClick={() => { setSelectedId(job.id); setView("detail"); setMessage(null); }}>
@@ -453,6 +465,18 @@ export function Workspace() {
                 <button type="button" className={strategy === "provided_urls" ? "mode active" : "mode"} onClick={() => setStrategy("provided_urls")}>URLs</button>
               </div>
             </div>
+
+            {strategy === "automatic" && <div className="depth-block">
+              <label className="input-label">Search depth <span>Loose record target</span></label>
+              <div className="depth-options" role="radiogroup" aria-label="Search depth">
+                {searchDepthOptions.map((option) => <button type="button" role="radio" aria-checked={searchDepth === option.value}
+                  className={searchDepth === option.value ? "depth-option active" : "depth-option"} key={option.value}
+                  onClick={() => setSearchDepth(option.value)}>
+                  <strong>{option.label}</strong><span>{combineSources ? option.combinedRange : option.range}</span><small>{option.hint}</small>
+                </button>)}
+              </div>
+              <p className="mode-hint">This is a ceiling, not a guarantee. WebForge stops earlier when it has enough data or sources fail.</p>
+            </div>}
 
             {strategy === "provided_urls" && <div className="seed-block"><label className="input-label" htmlFor="sources">Sources</label><textarea id="sources" rows={3} value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="One public URL per line" /></div>}
             <label className="field-option"><input type="checkbox" checked={combineSources} onChange={(event) => setCombineSources(event.target.checked)} /><span><strong>Combine sources into one record</strong><small>Use multiple pages for one item, such as Apple specs and an independent benchmark.</small></span></label>
@@ -529,7 +553,7 @@ export function Workspace() {
             <section className="api-section panel"><div><h2>Endpoints</h2></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{recordsPath}</code><button onClick={() => void copyEndpoint(recordsPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy</button></div></div></section>
             </>}
             <section className="api-settings panel"><div><h2>Settings</h2></div><button className="ghost-button" onClick={openApiSettings}>Open</button></section>
-            {apiSettingsOpen && apiSettingsJobId === selected.id && <section className="api-settings-editor panel" role="dialog" aria-modal="true" aria-label="API settings"><div className="settings-editor-heading"><div><h2>{selected.name}</h2></div><button onClick={() => setApiSettingsOpen(false)} aria-label="Close API settings">x</button></div><label className="input-label" htmlFor="api-name">API name</label><input id="api-name" className="text-input" value={editName} onChange={(event) => setEditName(event.target.value)} /><label className="input-label settings-interval-label" htmlFor="api-interval">Refresh</label><input id="api-interval" className="text-input interval-input" type="number" min="15" value={editInterval} onChange={(event) => setEditInterval(event.target.value)} placeholder="Manual" /><div className="settings-editor-actions"><button className="primary-button" onClick={() => void saveApiSettings()} disabled={busy || editName.trim().length < 3}>Save changes</button><button className={`danger-button ${deleteArmed ? "armed" : ""}`} onClick={() => deleteArmed ? void removeApi() : setDeleteArmed(true)} disabled={busy}>{deleteArmed ? "Confirm delete" : "Delete"}</button></div></section>}          </>}
+            {apiSettingsOpen && apiSettingsJobId === selected.id && <section className="api-settings-editor panel" role="dialog" aria-modal="true" aria-label="API settings"><div className="settings-editor-heading"><div><h2>{selected.name}</h2></div><button onClick={() => setApiSettingsOpen(false)} aria-label="Close API settings">x</button></div><label className="input-label" htmlFor="api-name">API name</label><input id="api-name" className="text-input" value={editName} onChange={(event) => setEditName(event.target.value)} />{selected.source_strategy.type === "automatic" && <><label className="input-label settings-interval-label" htmlFor="api-search-depth">Search depth</label><select id="api-search-depth" className="text-input" value={editSearchDepth} onChange={(event) => setEditSearchDepth(event.target.value as SearchDepth)}>{searchDepthOptions.map((option) => <option value={option.value} key={option.value}>{option.label} — {selected.combine_sources ? option.combinedRange : option.range}</option>)}</select></>}<label className="input-label settings-interval-label" htmlFor="api-interval">Refresh</label><input id="api-interval" className="text-input interval-input" type="number" min="15" value={editInterval} onChange={(event) => setEditInterval(event.target.value)} placeholder="Manual" /><div className="settings-editor-actions"><button className="primary-button" onClick={() => void saveApiSettings()} disabled={busy || editName.trim().length < 3}>Save changes</button><button className={`danger-button ${deleteArmed ? "armed" : ""}`} onClick={() => deleteArmed ? void removeApi() : setDeleteArmed(true)} disabled={busy}>{deleteArmed ? "Confirm delete" : "Delete"}</button></div></section>}          </>}
         </div>
       </main>
     </div>

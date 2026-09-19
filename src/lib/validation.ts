@@ -24,6 +24,7 @@ export const CreateApiJobInput = z.object({
   source_strategy: SourceStrategyInput.default({ type: "automatic", search_queries: [] }),
   sources: z.array(z.string().url()).max(5).default([]),
   combine_sources: z.boolean().default(false),
+  search_depth: z.enum(["focused", "balanced", "deep"]).default("balanced"),
   refresh_interval: z.number().int().min(15).max(525_600).nullable().default(null),
 }).strict().superRefine((input, context) => {
   if (input.source_strategy.type === "provided_urls" && input.sources.length === 0) {
@@ -63,4 +64,5 @@ export function cleanSourceUrls(values: string[]): string[] {
 export const UpdateApiJobInput = z.object({
   name: z.string().trim().min(3).max(100).optional(),
   refresh_interval: z.number().int().min(15).max(525_600).nullable().optional(),
+  search_depth: z.enum(["focused", "balanced", "deep"]).optional(),
 }).strict().refine((input) => Object.keys(input).length > 0, "Provide at least one setting to update.");

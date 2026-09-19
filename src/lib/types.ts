@@ -2,6 +2,7 @@ export const apiJobStatuses = ["planning", "awaiting_fields", "planned", "queued
 export type ApiJobStatus = (typeof apiJobStatuses)[number];
 export type ApiFieldType = "string" | "number" | "integer" | "boolean";
 export type SourceStrategyType = "automatic" | "provided_urls";
+export type SearchDepth = "focused" | "balanced" | "deep";
 export type SourceFailureCode = "UNSUPPORTED_SITE" | "ACCESS_BLOCKED" | "NO_STRUCTURED_JSON" | "SCHEMA_MISMATCH" | "IRRELEVANT_RECORD" | "SOURCE_HTTP_ERROR" | "RATE_LIMITED" | "CONFIG_OR_BILLING" | "UNVERIFIED_PRICE" | "MISSING_REQUIRED_FIELD" | "SOURCE_IDENTITY_MISMATCH" | "TRANSIENT";
 export type RunOutcome = "queued" | "running" | "ready" | "partial_stopped" | "failed" | "cancelled";
 export interface SourceCandidate { url: string; title?: string; description?: string; parentUrl?: string; }
@@ -18,6 +19,7 @@ export interface SourceStrategy { type: SourceStrategyType; searchQueries: strin
 export interface ApiJob {
   id: string; name: string; userRequest: string; status: ApiJobStatus;
   schema: ApiRecordSchema; sourceStrategy: SourceStrategy; sources: string[]; combineSources?: boolean;
+  searchDepth: SearchDepth;
   refreshInterval: number | null; error: string | null; createdAt: string; updatedAt: string; recordCount?: number;
   blockedDomains?: string[]; runSummary?: RunSummary | null;
   nextRefreshAt?: string | null; refreshFailures?: number; refreshPaused?: boolean;
@@ -26,7 +28,7 @@ export interface ApiJob {
 export interface ApiJobResponse {
   id: string; name: string; user_request: string; status: ApiJobStatus;
   schema: ApiRecordSchema; source_strategy: { type: SourceStrategyType; search_queries: string[] };
-  sources: string[]; combine_sources: boolean; refresh_interval: number | null; error: string | null; record_count: number;
+  sources: string[]; combine_sources: boolean; search_depth: SearchDepth; refresh_interval: number | null; error: string | null; record_count: number;
   created_at: string; updated_at: string;
   proposed_schema: ApiRecordSchema; schema_confirmed_at: string | null;
   next_refresh_at: string | null; refresh_failures: number; refresh_paused: boolean;
@@ -48,7 +50,8 @@ export function toApiJobResponse(job: ApiJob): ApiJobResponse {
     id: job.id, name: job.name, user_request: job.userRequest, status: job.status,
     schema: job.schema,
     source_strategy: { type: job.sourceStrategy.type, search_queries: job.sourceStrategy.searchQueries },
-    sources: job.sources, combine_sources: Boolean(job.combineSources), refresh_interval: job.refreshInterval, error: job.error, record_count: job.recordCount ?? 0,
+    sources: job.sources, combine_sources: Boolean(job.combineSources), search_depth: job.searchDepth,
+    refresh_interval: job.refreshInterval, error: job.error, record_count: job.recordCount ?? 0,
     created_at: job.createdAt, updated_at: job.updatedAt,
     proposed_schema: job.status === "awaiting_fields" ? (job.proposedSchema || {}) : {},
     schema_confirmed_at: job.schemaConfirmedAt || null,

@@ -24,6 +24,7 @@ function job(strategy: "automatic" | "provided_urls", request = "Golden Deliciou
     schema: { item_name: { type: "string" }, source_url: { type: "string" } },
     proposedSchema: {}, schemaConfirmedAt: now,
     sourceStrategy: { type: strategy, searchQueries: ["Golden Delicious apples Walmart"] },
+    searchDepth: "deep",
     sources: strategy === "provided_urls" ? ["https://example.com/apple"] : [],
     refreshInterval: null, error: null, createdAt: now, updatedAt: now,
   };
@@ -188,6 +189,72 @@ test("automatic combined jobs search complementary sites and publish one API rec
   assert.equal(store.listApiRecords(api.id)[0].sourceUrls?.length, 2);
 });
 
+test("automatic jobs can save more than five discovered records", async () => {
+  const api = job("automatic", "Collect public course records");
+  api.sourceStrategy.searchQueries = ["Waterloo CS courses", "Waterloo CS professors", "Waterloo CS ratings"];
+  store.saveApiJob(api);
+  const result = await runApiJob(api.id, {
+    async discover(query) {
+      const slug = query.replaceAll(" ", "-");
+      return Array.from({ length: 4 }, (_, index) => ({
+        url: `https://example.com/${slug}/${index + 1}`,
+        title: `${query} ${index + 1}`,
+      }));
+    },
+    async extract(url) {
+      const course = url.split("/").at(-1);
+      return { data: { item_name: `Course ${course}`, source_url: url }, identity: `Course ${course}` };
+    },
+  }, undefined, async (_request, discovered) => discovered, undefined, async () => true);
+  assert.equal(result.status, "ready");
+  assert.equal(result.runSummary?.scrapeCalls, 12);
+  assert.equal(result.runSummary?.savedRecords, 12);
+  assert.equal(store.countApiRecords(api.id), 12);
+});
+
+test("balanced search depth caps a vague automatic job at six records", async () => {
+  const api = job("automatic", "Collect public course records");
+  api.searchDepth = "balanced";
+  api.sourceStrategy.searchQueries = ["Waterloo CS courses", "Waterloo CS professors", "Waterloo CS ratings"];
+  store.saveApiJob(api);
+  const result = await runApiJob(api.id, {
+    async discover(query) {
+      const slug = query.replaceAll(" ", "-");
+      return Array.from({ length: 4 }, (_, index) => ({ url: `https://example.com/${slug}/${index + 1}` }));
+    },
+    async extract(url) {
+      return { data: { item_name: url, source_url: url }, identity: url };
+    },
+  }, undefined, async (_request, discovered) => discovered, undefined, async () => true);
+  assert.equal(result.runSummary?.scrapeCalls, 6);
+  assert.equal(result.runSummary?.savedRecords, 6);
+  assert.equal(store.countApiRecords(api.id), 6);
+});
+
+test("combined jobs stop scraping once every requested field is populated", async () => {
+  const api = job("automatic", "Combine a course description and professor rating");
+  api.combineSources = true;
+  api.sourceStrategy.searchQueries = ["course description", "professor rating"];
+  api.schema = { course_name: { type: "string" }, professor_rating: { type: "number" }, source_url: { type: "string" } };
+  store.saveApiJob(api);
+  let scrapeCalls = 0;
+  const result = await runApiJob(api.id, {
+    async discover(query) {
+      const slug = query.replaceAll(" ", "-");
+      return [1, 2, 3].map((index) => ({ url: `https://example.com/${slug}/${index}` }));
+    },
+    async extract(url) {
+      scrapeCalls++;
+      return url.includes("course-description")
+        ? { data: { course_name: "CS 246", professor_rating: null, source_url: url }, identity: "CS 246" }
+        : { data: { course_name: null, professor_rating: 4.7, source_url: url }, identity: "CS 246" };
+    },
+  }, undefined, async (_request, discovered) => discovered, undefined, async () => true);
+  assert.equal(result.status, "ready");
+  assert.equal(scrapeCalls, 2);
+  assert.equal(result.runSummary?.scrapeCalls, 2);
+});
+
 test("incomplete combined refresh keeps the previous complete phone record", async () => {
   const api = job("provided_urls", "Combine iPhone 16 Pro specs and benchmark");
   api.combineSources = true;
@@ -260,7 +327,7 @@ test("recovered runs retain paid-call limits across a restart", async () => {
   store.enqueueApiRun(api.id);
   const first = store.claimNextRun()!;
   store.saveRunSummary({ id: first.id, jobId: api.id, startedAt: new Date().toISOString(), finishedAt: null,
-    searchCalls: 0, scrapeCalls: 5, recoveryCalls: 0, consecutiveFailures: 0, totalFailures: 0,
+    searchCalls: 0, scrapeCalls: 12, recoveryCalls: 0, consecutiveFailures: 0, totalFailures: 0,
     savedRecords: 0, skippedSources: 0, outcome: "running", stopReason: null, trigger: "manual" });
   const db = new DatabaseSync(process.env.WEBFORGE_DB_PATH!);
   db.prepare("UPDATE api_job_runs SET lease_until = ? WHERE id = ?").run("2020-01-01T00:00:00.000Z", first.id);
@@ -273,7 +340,7 @@ test("recovered runs retain paid-call limits across a restart", async () => {
     async extract() { scrapes++; return { data: apple, identity: "Golden Delicious apple at Walmart" }; },
   }, undefined, undefined, resumed, async () => true);
   assert.equal(scrapes, 0);
-  assert.equal(result.runSummary?.scrapeCalls, 5);
+  assert.equal(result.runSummary?.scrapeCalls, 12);
 });
 
 test("scheduled refresh queues once and pauses after two failed cycles", () => {

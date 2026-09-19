@@ -5,8 +5,8 @@ Last reviewed: September 19, 2026. Status reflects the current working tree. Che
 ## Current working path
 
 - Plain-English request -> OpenAI plan -> user chooses fields -> Firecrawl search and structured extraction -> SQLite records -> JSON endpoints.
-- Automatic discovery now runs up to five distinct planned searches, gives each subject a source attempt before fallback pages, and labels missing subjects **Partial data**. One optional recovery search remains bounded. Per run: at most six searches total, five scrapes, one recovery decision, five source failures, and four minutes. These are ceilings, not expected usage.
-- The existing MDN JavaScript/HTML/CSS API has three records. Earlier live isolated tests confirmed both three-of-three **Ready** and one-missing **Partial data** outcomes. The current mocked suite has 33 passing tests, and lint and build pass.
+- Automatic discovery has Focused (up to two searches/three scrapes), Balanced (four/six, default), and Deep (five/twelve) modes. It gives each searched subject a source attempt before fallback pages and labels missing subjects **Partial data**. One optional recovery search remains bounded. Every run also has one recovery decision, five source failures, and four minutes. Combined-source runs stop early when all requested fields are populated. These are ceilings, not expected usage.
+- The existing MDN JavaScript/HTML/CSS API has three records. Earlier live isolated tests confirmed both three-of-three **Ready** and one-missing **Partial data** outcomes. The current mocked suite has 57 passing tests, and lint and build pass.
 - `refresh_interval` schedules work through the separate `npm run worker` process. Restart the server and worker after changing keys or pulling code. `.env.local` and `.data/` are ignored by Git.
 
 ## 1. Discovery and failed extraction — PARTIAL

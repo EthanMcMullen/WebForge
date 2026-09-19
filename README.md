@@ -23,11 +23,41 @@ In another terminal:
 npm run worker
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Enter a request such as “Create an API with the title, author, and publication date of recent articles about battery recycling.” Choose automatic discovery or supply up to five public page URLs. Click **Propose fields**, choose the fields you want in the JSON API, then click **Build API**. Firecrawl runs only after confirmation.
+Open [http://localhost:3000](http://localhost:3000). Enter a request such as “Create an API with the title, author, and publication date of recent articles about battery recycling.” Choose automatic discovery and a search depth, or supply up to five public page URLs. Click **Propose fields**, choose the fields you want in the JSON API, then click **Build API**. Firecrawl runs only after confirmation.
+
+Automatic discovery offers three loose record targets: **Focused** uses up to two searches and three scrapes, **Balanced** (the default) uses up to four searches and six scrapes, and **Deep** uses up to five searches and twelve scrapes. These are ceilings rather than promised record counts. Runs stop early when enough data is found, and you can change the depth later in API Settings before a refresh.
 
 For one item whose fields come from different sites, check **Combine sources into one record**. For example, request “iPhone 16 Pro display size from Apple and single-core benchmark score from Geekbench,” then select both fields. You can provide the two page URLs or let automatic discovery find a page for each field group. The planner can also select this mode when your request clearly calls for one item with complementary sources. Keep it off when you want a separate record per item or URL.
 
 `OPENAI_MODEL` defaults to `gpt-4.1-mini`. `WEBFORGE_DB_PATH` defaults to `.data/webforge.sqlite` under the project directory. The `.env.local` file and database are ignored by Git. The worker polls every five seconds, executes queued runs, and schedules due refreshes. Keep it running alongside the web server. `WEBFORGE_BASE_URL` can point the worker to a nondefault server address.
+
+## CLI / VS Code terminal
+
+The CLI uses the same API, worker, database, depth limits, and access token as the dashboard. From the repository, start the complete local service in one VS Code terminal:
+
+The site also serves a standalone, dependency-free client from `/cli`. Download `webforge-cli.mjs` there and run `node webforge-cli.mjs create --wait` from any VS Code terminal. The standalone file connects to an existing local or hosted WebForge service; it does not bundle the server or secret API keys.
+
+```powershell
+npm run cli -- serve
+```
+
+In another terminal, launch the interactive creation flow:
+
+```powershell
+npm run cli -- create --wait
+```
+
+To install the repository as a local command, run `npm link` once. You can then use:
+
+```powershell
+webforge create --request "List University of Waterloo CS courses and professors" --depth balanced --wait
+webforge list
+webforge status <job-id>
+webforge records <job-id>
+webforge refresh <job-id> --wait
+```
+
+Use `webforge help` for every option. `WEBFORGE_BASE_URL` defaults to `http://localhost:3000`. If shared access is enabled, the CLI reads `WEBFORGE_ACCESS_TOKEN` from `.env.local` and sends it as a bearer token. No VS Code extension is required; the command runs directly in its integrated terminal.
 
 ## Access
 
@@ -55,6 +85,7 @@ Example creation request:
 $body = @{
   user_request = "Track the title, author, and publication date of recent articles about battery recycling."
   source_strategy = @{ type = "automatic"; search_queries = @() }
+  search_depth = "balanced"
   sources = @()
   refresh_interval = $null
 } | ConvertTo-Json -Depth 4
@@ -87,8 +118,8 @@ A records response has `job_id`, `status`, `count`, and `records`. Each record i
 
 ## Current scope
 
-- By default one source page produces one record. Combined mode targets one entity and produces one record from up to five scraped pages. Broad list pages may not yield every item on the page.
-- Each run allows at most five planned Firecrawl searches plus one recovery search, five structured scrapes, one OpenAI recovery decision, five source failures, and four minutes. Search candidates are reviewed by OpenAI before scraping. Each planned search gets its best page considered before fallback pages, and incomplete subjects are reported as partial results. These are per-run limits; there is no daily credit cap. Check your Firecrawl dashboard for actual credits used.
+- By default one source page produces one record. Combined mode targets one entity and produces one record from up to twelve discovered pages, or up to five URLs supplied directly by the user. Broad list pages may not yield every item on the page.
+- Automatic runs use their selected depth ceiling: Focused allows two planned searches and three structured scrapes, Balanced allows four and six, and Deep allows five and twelve. Each mode reserves room for at most one recovery search. Every run also allows one OpenAI recovery decision, five source failures, and four minutes. Search candidates are reviewed by OpenAI before scraping. Candidates are tried round-robin across planned searches, and combined-source runs stop early once every requested field is populated. Incomplete subjects are reported as partial results. These are per-run limits; there is no daily credit cap. Firecrawl's structured JSON extraction can cost more than a basic scrape, so check your Firecrawl dashboard for actual credits used.
 - Known unsupported social domains are skipped before scraping. Firecrawl errors are classified, and an automatic job can ask OpenAI for one alternate search query when candidate pages run out. Provided URL jobs do not switch sources. Source review and numeric-price evidence checks reduce mismatches, but other extracted fields are not independently fact checked.
 - A configured `refresh_interval` schedules refreshes while the worker runs. Refreshes reuse the confirmed schema and source strategy. A job pauses scheduled refreshes after two runs that make no usable progress; saving its settings resumes the schedule. Run history and the paused state appear in the UI.
 - Fields visible only in product images, OCR, login-only pages, and private pages are outside this version.

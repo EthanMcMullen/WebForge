@@ -3,11 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "webforge": "scripts/cli.mjs"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "worker": "node --env-file-if-exists=.env.local scripts/worker.mjs",
+    "cli": "node --env-file-if-exists=.env.local scripts/cli.mjs",
+    "cli:bundle": "node scripts/sync-cli-download.mjs",
     "lint": "eslint .",
     "test": "node --conditions=react-server --import tsx --test tests/*.test.ts"
   },
