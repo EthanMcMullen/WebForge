@@ -18,9 +18,13 @@ const statusLabels: Record<ApiJobResponse["status"], string> = {
   failed: "Failed",
 };
 
+type WorkspaceView = "home" | "new" | "library" | "detail";
+
 export function Workspace() {
   const [jobs, setJobs] = useState<ApiJobResponse[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<WorkspaceView>("home");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
   const [records, setRecords] = useState<ApiRecordResponse[]>([]);
   const [name, setName] = useState("");
@@ -98,6 +102,7 @@ export function Workspace() {
       const result = await response.json() as { job?: ApiJobResponse; error?: string };
       if (!response.ok || !result.job) throw new Error(result.error || "Could not create API job.");
       await loadJobs(result.job.id);
+      setView("detail");
       if (result.job.status === "failed") {
         setMessage(result.job.error || "Planning failed.");
         return;
@@ -171,13 +176,15 @@ export function Workspace() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand"><div className="brand-mark">W</div><div><strong>WebForge</strong><span>API JOBS</span></div></div>
+        <button className="brand brand-button" onClick={() => { setSelectedId(null); setView("home"); }}><div className="brand-mark">W</div><div><strong>WebForge</strong><span>API PLATFORM</span></div></button>
         <div className="sidebar-section-label">WORKSPACE</div>
-        <button className="nav-item active" onClick={() => setSelectedId(null)}><span className="nav-icon">+</span> New API job</button>
+        <button className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => { setSelectedId(null); setView("home"); }}><span className="nav-icon">H</span> Home</button>
+        <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => setView("library")}><span className="nav-icon">L</span> API library</button>
+        <button className="nav-item active" onClick={() => { setSelectedId(null); setView("new"); }}><span className="nav-icon">+</span> New API job</button>
         <div className="sidebar-section-label datasets-label">API JOBS <span>{jobs.length}</span></div>
         <div className="dataset-list">
           {jobs.length ? jobs.map((job) => (
-            <button key={job.id} className={`dataset-item ${selectedId === job.id ? "selected" : ""}`} onClick={() => { setSelectedId(job.id); setMessage(null); }}>
+            <button key={job.id} className={`dataset-item ${selectedId === job.id && view === "detail" ? "selected" : ""}`} onClick={() => { setSelectedId(job.id); setView("detail"); setMessage(null); }}>
               <span className="dataset-dot" />
               <span className="dataset-text"><strong>{job.name}</strong><small>{statusLabels[job.status]}</small></span>
             </button>
@@ -187,15 +194,33 @@ export function Workspace() {
       </aside>
 
       <main className="main">
-        <header className="topbar"><div className="breadcrumbs">API JOBS <span>/</span> {selected ? selected.name.toUpperCase() : "NEW"}</div><div className="top-right"><span className="version">LIVE API</span><span className="avatar">WF</span></div></header>
+        <header className="topbar"><div className="breadcrumbs">API JOBS <span>/</span> {selected ? selected.name.toUpperCase() : "NEW"}</div><div className="top-right"><span className="version">LIVE API</span><button className="avatar" aria-label="Open settings" onClick={() => setSettingsOpen((open) => !open)}>WF</button></div></header>
         {message && <div className="toast" role="status"><span>{message}</span><button onClick={() => setMessage(null)} aria-label="Dismiss">x</button></div>}
+        {settingsOpen && <div className="settings-menu" role="dialog" aria-label="Workspace settings">
+          <strong>Workspace settings</strong>
+          <p>Connection status and account controls.</p>
+          <div><span>OpenAI planner</span><b className={config?.planner_ready ? "good" : "bad"}>{config?.planner_ready ? "Connected" : "Needs key"}</b></div>
+          <div><span>Firecrawl extraction</span><b className={config?.extraction_ready ? "good" : "bad"}>{config?.extraction_ready ? "Connected" : "Needs key"}</b></div>
+          <button className="ghost-button" onClick={() => setSettingsOpen(false)}>Close settings</button>
+        </div>}
 
         <div className="content">
           <div className="hero-eyebrow"><span className="sparkle">*</span> NATURAL LANGUAGE TO API</div>
           <h1>Describe the data.<br /><em>Get a live API.</em></h1>
           <p className="hero-copy">Describe public web data in plain English. WebForge plans the fields, finds sources, extracts records, and serves them as JSON.</p>
 
-          <section className="composer panel">
+          {view === "home" && <section className="home-menu">
+            <button className="home-action panel" onClick={() => setView("new")}><span>01</span><div><strong>Create a new API</strong><p>Start with a plain-English request, select your fields, then build.</p></div><b>Start</b></button>
+            <button className="home-action panel" onClick={() => setView("library")}><span>02</span><div><strong>Browse your API library</strong><p>{jobs.length ? `${jobs.length} API job${jobs.length === 1 ? "" : "s"} ready to inspect.` : "View every API you create in one place."}</p></div><b>Open</b></button>
+            <div className="home-status panel"><span className={`connection-dot ${config?.planner_ready && config?.extraction_ready ? "on" : ""}`} /><div><strong>Workspace connection</strong><p>{config?.planner_ready && config?.extraction_ready ? "OpenAI and Firecrawl are connected." : `${config?.missing.join(", ") || "API keys"} still need attention.`}</p></div></div>
+          </section>}
+
+          {view === "library" && <section className="library-panel panel">
+            <div className="section-header"><div><div className="section-kicker">API LIBRARY</div><h2>Your APIs</h2><p>Choose an API to see its data, history, controls, and endpoints.</p></div><button className="primary-button" onClick={() => { setSelectedId(null); setView("new"); }}>New API</button></div>
+            {jobs.length ? <div className="library-list">{jobs.map((job) => <button key={job.id} className="library-item" onClick={() => { setSelectedId(job.id); setView("detail"); }}><span className={`library-status ${job.status}`} /><div><strong>{job.name}</strong><small>{statusLabels[job.status]} / {Object.keys(job.schema).length || Object.keys(job.proposed_schema).length} fields</small></div><time>{new Date(job.updated_at).toLocaleDateString()}</time><b>View</b></button>)}</div> : <div className="empty-state"><strong>No APIs yet</strong><p>Create your first API from a simple request.</p><button className="primary-button" onClick={() => setView("new")}>Create an API</button></div>}
+          </section>}
+
+          {view === "new" && <section className="composer panel">
             <div className="panel-heading"><span className="step-number">01</span><div><h2>Plan an API job</h2><p>OpenAI proposes fields first. You choose which data to include before extraction begins.</p></div></div>
             <label className="input-label" htmlFor="job-name">NAME <span>OPTIONAL</span></label>
             <input id="job-name" className="text-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Generated automatically when omitted" />
@@ -213,9 +238,9 @@ export function Workspace() {
             {strategy === "provided_urls" && <div className="seed-block"><label className="input-label" htmlFor="sources">SOURCES <span>ONE PUBLIC URL PER LINE</span></label><textarea id="sources" rows={3} value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="https://example.com/source" /></div>}
             <div className="interval-row"><label className="input-label" htmlFor="interval">REFRESH INTERVAL <span>MINUTES / OPTIONAL / MANUAL REFRESH IN MVP</span></label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
             <div className="composer-footer"><span>Request / plan / Firecrawl / records / API</span><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready}>{busy ? "Planning..." : "Propose fields"}<span aria-hidden="true">&gt;</span></button></div>
-          </section>
+          </section>}
 
-          {selected && <>
+          {view === "detail" && selected && <>
             <section className="overview-grid">
               <div className="metric panel"><span>JOB</span><strong>{selected.name}</strong><small>{selected.id}</small></div>
               <div className="metric panel"><span>STATUS</span><strong className={`metric-status ${selected.status}`}>{statusLabels[selected.status]}</strong><small>Updated {new Date(selected.updated_at).toLocaleString()}</small></div>

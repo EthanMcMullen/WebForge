@@ -4,6 +4,8 @@ This is the WebForge backlog. These items describe work to do; they are not impl
 
 ## 1. Fix discovery and failed extraction (highest priority)
 
+**RESOLVED (September 19):** The Golden Delicious Walmart regression is fixed. Automatic discovery now reaches a relevant grocery-apple result, saves the .89 record, and treats the job as ready when an unrelated candidate fails after a valid record is saved. Walmart brand pages are excluded as product candidates. The broader reliability work listed below remains planned.
+
 **Investigated case (Apple #2, September 19):** The request asked for the price of a Golden Delicious apple from Walmart. The saved run used one search and three scrapes, saved two records, skipped one source, made zero recovery calls, and stopped at the three-scrape limit.
 
 **Implementation update (September 19):** The same prompt now reaches the exact Walmart Fresh Golden Delicious Apple product link. The product page scrape exposed an unrelated $3.97 recommendation, so WebForge rejects that price and checks the matching card on the Walmart category page. A live run saved the card's $0.89 price with one search, two scrapes, zero recovery calls, and no warning. The broader relevance, pricing, and refresh work below remains on the backlog.
