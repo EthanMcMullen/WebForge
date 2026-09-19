@@ -171,7 +171,11 @@ export function Workspace() {
 
   const jobPath = selected ? `/api/jobs/${selected.id}` : "";
   const schemaPath = selected ? `/api/jobs/${selected.id}/schema` : "";
-  const recordsPath = selected ? `/api/jobs/${selected.id}/records` : "";
+const recordsPath = selected ? `/api/jobs/${selected.id}/records` : "";
+  const readyJobs = jobs.filter((job) => job.status === "ready");
+  const storedRecords = jobs.reduce((total, job) => total + (job.run_summary?.saved_records || 0), 0);
+const latestJob = jobs[0] || null;
+  const screenTitle = view === "home" ? "HOME" : view === "new" ? "NEW API" : view === "library" ? "API LIBRARY" : selected?.name.toUpperCase() || "API DETAIL";
 
   return (
     <div className="shell">
@@ -190,11 +194,11 @@ export function Workspace() {
             </button>
           )) : <p className="sidebar-empty">Your API jobs will appear here.</p>}
         </div>
-        <div className="sidebar-bottom"><div className={`connection-dot ${config?.planner_ready ? "on" : ""}`} /><span>{config?.planner_ready && config?.extraction_ready ? "OpenAI + Firecrawl ready" : `${config?.missing.join(", ") || "Keys"} required`}</span></div>
+        <button className="sidebar-bottom settings-link" onClick={() => setSettingsOpen(true)}><span>Workspace settings</span><b>›</b></button>
       </aside>
 
       <main className="main">
-        <header className="topbar"><div className="breadcrumbs">API JOBS <span>/</span> {selected ? selected.name.toUpperCase() : "NEW"}</div><div className="top-right"><span className="version">LIVE API</span><button className="avatar" aria-label="Open settings" onClick={() => setSettingsOpen((open) => !open)}>WF</button></div></header>
+        <header className="topbar"><div className="breadcrumbs">WEBFORGE <span>/</span> {screenTitle}</div><div className="top-right"><span className="version">LIVE API</span><button className="avatar" aria-label="Open settings" onClick={() => setSettingsOpen((open) => !open)}>WF</button></div></header>
         {message && <div className="toast" role="status"><span>{message}</span><button onClick={() => setMessage(null)} aria-label="Dismiss">x</button></div>}
         {settingsOpen && <div className="settings-menu" role="dialog" aria-label="Workspace settings">
           <strong>Workspace settings</strong>
@@ -205,16 +209,11 @@ export function Workspace() {
         </div>}
 
         <div className="content">
-          <div className="hero-eyebrow"><span className="sparkle">*</span> NATURAL LANGUAGE TO API</div>
-          <h1>Describe the data.<br /><em>Get a live API.</em></h1>
-          <p className="hero-copy">Describe public web data in plain English. WebForge plans the fields, finds sources, extracts records, and serves them as JSON.</p>
-
-          {view === "home" && <section className="home-menu">
-            <button className="home-action panel" onClick={() => setView("new")}><span>01</span><div><strong>Create a new API</strong><p>Start with a plain-English request, select your fields, then build.</p></div><b>Start</b></button>
-            <button className="home-action panel" onClick={() => setView("library")}><span>02</span><div><strong>Browse your API library</strong><p>{jobs.length ? `${jobs.length} API job${jobs.length === 1 ? "" : "s"} ready to inspect.` : "View every API you create in one place."}</p></div><b>Open</b></button>
-            <div className="home-status panel"><span className={`connection-dot ${config?.planner_ready && config?.extraction_ready ? "on" : ""}`} /><div><strong>Workspace connection</strong><p>{config?.planner_ready && config?.extraction_ready ? "OpenAI and Firecrawl are connected." : `${config?.missing.join(", ") || "API keys"} still need attention.`}</p></div></div>
-          </section>}
-
+          {view === "home" ? <>
+            <div className="dashboard-hero"><div><div className="hero-eyebrow"><span className="sparkle">*</span> WEBFORGE WORKSPACE</div><h1>Your web data,<br /><em>ready to build with.</em></h1><p className="hero-copy">Create APIs from public websites, keep an eye on their latest runs, and ship the JSON your project needs.</p></div><button className="dashboard-create" onClick={() => setView("new")}><span>+</span><div><strong>Create an API</strong><small>Start from a plain-English request</small></div></button></div>
+            <section className="dashboard-stats" aria-label="Workspace summary"><div className="stat-card panel"><span>ACTIVE APIS</span><strong>{jobs.length}</strong><small>{readyJobs.length} ready to use</small></div><div className="stat-card panel"><span>RECORDS CAPTURED</span><strong>{storedRecords}</strong><small>Across latest successful runs</small></div><div className="stat-card panel"><span>LAST UPDATED</span><strong>{latestJob ? new Date(latestJob.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "--"}</strong><small>{latestJob ? latestJob.name : "No APIs yet"}</small></div><div className="stat-card accent panel"><span>QUICK START</span><strong>New API</strong><button onClick={() => setView("new")}>Describe your data <span>&gt;</span></button></div></section>
+            <section className="dashboard-grid"><div className="dashboard-panel panel"><div className="dashboard-heading"><div><div className="section-kicker">RECENT ACTIVITY</div><h2>What happened recently</h2></div><button className="text-button" onClick={() => setView("library")}>View library</button></div>{jobs.length ? <div className="activity-list">{jobs.slice(0, 4).map((job) => <button className="activity-item" key={job.id} onClick={() => { setSelectedId(job.id); setView("detail"); }}><span className={`activity-dot ${job.status}`} /><div><strong>{job.name}</strong><small>{statusLabels[job.status]}{job.run_summary ? ` / ${job.run_summary.saved_records} record${job.run_summary.saved_records === 1 ? "" : "s"} saved` : ""}</small></div><time>{new Date(job.updated_at).toLocaleDateString()}</time></button>)}</div> : <div className="dashboard-empty"><strong>Your activity will appear here.</strong><p>Create an API and WebForge will show its discovery and extraction results here.</p></div>}</div><div className="dashboard-panel panel"><div className="dashboard-heading"><div><div className="section-kicker">STARTER IDEAS</div><h2>Build something useful</h2></div></div><div className="template-list"><button onClick={() => { setUserRequest("Track product name, price, availability, and unit price for Golden Delicious apples at Walmart."); setView("new"); }}><span>01</span><div><strong>Product price tracker</strong><small>Prices and availability from retailers</small></div><b>&gt;</b></button><button onClick={() => { setUserRequest("Create an API for upcoming hackathons with name, location, application deadline, event dates, and official URL."); setView("new"); }}><span>02</span><div><strong>Event directory</strong><small>Dates, locations, and deadlines</small></div><b>&gt;</b></button><button onClick={() => { setUserRequest("Create an API for restaurant menus with restaurant name, item name, price, dietary tags, and source URL."); setView("new"); }}><span>03</span><div><strong>Menu monitor</strong><small>Items, prices, and dietary information</small></div><b>&gt;</b></button></div></div></section>
+          </> : <><div className="hero-eyebrow"><span className="sparkle">*</span> NATURAL LANGUAGE TO API</div><h1>Describe the data.<br /><em>Get a live API.</em></h1><p className="hero-copy">Describe public web data in plain English. WebForge plans the fields, finds sources, extracts records, and serves them as JSON.</p></>}
           {view === "library" && <section className="library-panel panel">
             <div className="section-header"><div><div className="section-kicker">API LIBRARY</div><h2>Your APIs</h2><p>Choose an API to see its data, history, controls, and endpoints.</p></div><button className="primary-button" onClick={() => { setSelectedId(null); setView("new"); }}>New API</button></div>
             {jobs.length ? <div className="library-list">{jobs.map((job) => <button key={job.id} className="library-item" onClick={() => { setSelectedId(job.id); setView("detail"); }}><span className={`library-status ${job.status}`} /><div><strong>{job.name}</strong><small>{statusLabels[job.status]} / {Object.keys(job.schema).length || Object.keys(job.proposed_schema).length} fields</small></div><time>{new Date(job.updated_at).toLocaleDateString()}</time><b>View</b></button>)}</div> : <div className="empty-state"><strong>No APIs yet</strong><p>Create your first API from a simple request.</p><button className="primary-button" onClick={() => setView("new")}>Create an API</button></div>}
