@@ -54,6 +54,9 @@ test("a related product price cannot validate the requested apple", () => {
   assert.throws(() => verifyPriceEvidence(apple, markdown), /not supported/);
   assert.doesNotThrow(() => verifyPriceEvidence({ ...apple, price: 0.89 },
     "[Fresh Golden Delicious Apple, Each, $0.89](https://www.walmart.com/ip/apple)"));
+  assert.doesNotThrow(() => verifyPriceEvidence({ price: 0.89 },
+    "[Fresh Golden Delicious Apple, Each, $0.89](https://www.walmart.com/ip/apple)",
+    "Fresh Golden Delicious Apple, Each, $0.89, 11.1 ¢/oz"));
   assert.equal(classifySourceError(new Error("Price was not supported by source text.")), "UNVERIFIED_PRICE");
 });
 

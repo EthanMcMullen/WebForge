@@ -53,7 +53,7 @@ export function verifyPriceEvidence(
   if (typeof data.price !== "number") return;
   const name = typeof data.product_name === "string" && data.product_name.trim()
     ? data.product_name.trim()
-    : subjectHint?.replace(/[,\s]*[$€£]\s*\d[\d,.]*/u, "").replace(/\*+/g, "").trim();
+    : subjectHint?.replace(/[,\s]*[$€£].*$/u, "").replace(/\*+/g, "").trim();
   if (!name || !markdown) throw new Error("Price was not supported by source text.");
   const haystack = markdown.toLowerCase();
   const needle = name.toLowerCase();
