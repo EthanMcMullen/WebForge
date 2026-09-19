@@ -17,6 +17,7 @@ test("combined extraction accepts sparse pages and tracks each populated field",
   assert.equal(record.data.source_url, "https://apple.example/specs");
   assert.equal(record.fieldSources.single_core_score, "https://benchmark.example/phone");
   assert.deepEqual(record.sourceUrls, ["https://apple.example/specs", "https://benchmark.example/phone"]);
+  assert.deepEqual(record.conflicts, []);
 });
 
 test("conflicting phone variant cannot contribute a benchmark score", () => {
