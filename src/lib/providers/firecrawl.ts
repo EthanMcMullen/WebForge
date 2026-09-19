@@ -3,10 +3,11 @@ import { Firecrawl } from "firecrawl";
 import type { ApiRecordData, ApiRecordSchema, SourceCandidate } from "../types";
 
 import { extractionJsonSchema, normalizeExtractedData, verifyPriceEvidence } from "../extraction";
+import { validatePriceSource } from "../record-quality";
 
 export interface ExtractionProvider {
   discover(query: string, options: { excludedDomains: string[]; limit: number }): Promise<SourceCandidate[]>;
-  extract(url: string, schema: ApiRecordSchema, subjectHint?: string, userRequest?: string): Promise<{ data: ApiRecordData; identity: string | null }>;
+  extract(url: string, schema: ApiRecordSchema, subjectHint?: string, userRequest?: string, combineSources?: boolean): Promise<{ data: ApiRecordData; identity: string | null; sourceTitle?: string | null; canonicalUrl?: string | null }>;
 }
 function client(): Firecrawl {
   if (!process.env.FIRECRAWL_API_KEY) throw new Error("FIRECRAWL_API_KEY is required to run an API job.");
@@ -28,7 +29,8 @@ export const firecrawlProvider: ExtractionProvider = {
       };
     }).filter((item) => Boolean(item.url));
   },
-  async extract(url, schema, subjectHint, userRequest) {
+  async extract(url, schema, subjectHint, userRequest, combineSources) {
+    if (userRequest) validatePriceSource(userRequest, schema, url);
     const verifyPrice = schema.price?.type === "number" || schema.price?.type === "integer";
     const extractionSchema = extractionJsonSchema(schema);
     const identitySchema = {
@@ -47,6 +49,7 @@ export const firecrawlProvider: ExtractionProvider = {
           schema: identitySchema,
           prompt: [
             "Extract one record about the item requested by the user. Use only information present on this page.",
+            combineSources ? "This page is one of several sources for the SAME item. Return null for fields absent here; another page may supply them. Identify the exact model and variant visible here." : "",
             "On a category page, use only the matching product card, never a related item or recommendation.",
             "The price must belong to that same item. Return null for unavailable fields; do not infer values.",
             userRequest ? `User request: ${userRequest}` : "",
@@ -59,7 +62,7 @@ export const firecrawlProvider: ExtractionProvider = {
       throw Object.assign(new Error(`Source returned HTTP ${result.metadata.statusCode}.`), { status: result.metadata.statusCode });
     }
     if (result.metadata?.error) throw new Error(result.metadata.error);
-    const data = normalizeExtractedData(result.json, schema, url);
+    const data = normalizeExtractedData(result.json, schema, url, Boolean(combineSources));
     const identity = result.json && typeof result.json === "object" &&
       typeof (result.json as Record<string, unknown>).__webforge_identity === "string"
       ? String((result.json as Record<string, unknown>).__webforge_identity).slice(0, 300) : null;
@@ -67,6 +70,7 @@ export const firecrawlProvider: ExtractionProvider = {
     if (Object.entries(data).every(([key, value]) => key === "source_url" || value === null)) {
       throw new Error("Firecrawl returned no usable fields.");
     }
-    return { data, identity };
+    return { data, identity, sourceTitle: result.metadata?.title || null,
+      canonicalUrl: result.metadata?.sourceURL || null };
   },
 };

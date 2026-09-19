@@ -56,6 +56,32 @@ test("source-less retailer typo suggests a correction without changing the reque
   assert.equal(result.runSummary?.scrapeCalls, 0);
 });
 
+test("source-less search does not repeat the requested retailer as a correction", async () => {
+  const api = job("automatic", "Find fresh apples at Fresco Canada");
+  store.saveApiJob(api);
+  const result = await runApiJob(api.id, {
+    async discover() { return []; },
+    async extract(): Promise<{ data: ApiRecordData; identity: string | null }> { throw new Error("Should not scrape"); },
+  }, async () => ({ action: "stop", query: null }), async (_request, candidates) => candidates,
+  undefined, async () => true, async () => "Fresco Canada");
+  assert.doesNotMatch(result.error || "", /Did you mean/);
+});
+
+test("price job rejects null prices before record review or storage", async () => {
+  const api = job("provided_urls", "AirPods price on Amazon");
+  api.sources = ["https://www.amazon.com/dp/B012345678"];
+  api.schema = { product_name: { type: "string" }, price: { type: "number" } };
+  store.saveApiJob(api);
+  let reviewed = false;
+  const result = await runApiJob(api.id, {
+    async discover() { return []; },
+    async extract() { return { data: { product_name: "AirPods", price: null }, identity: "AirPods" }; },
+  }, undefined, undefined, undefined, async () => { reviewed = true; return true; });
+  assert.equal(reviewed, false);
+  assert.equal(result.status, "failed");
+  assert.equal(store.countApiRecords(api.id), 0);
+});
+
 test("failed refresh preserves previously saved records", async () => {
   const api = job("provided_urls");
   store.saveApiJob(api);
@@ -73,6 +99,117 @@ test("failed refresh preserves previously saved records", async () => {
   assert.equal(store.countApiRecords(api.id), 1);
   assert.equal(result.status, "partial");
   assert.equal(store.listApiJobRuns(api.id).length, 2);
+});
+
+test("two URLs enrich one phone record with field provenance", async () => {
+  const api = job("provided_urls", "Combine iPhone 16 Pro specs from Apple and benchmark results for the same phone");
+  api.combineSources = true;
+  api.sources = ["https://www.apple.com/iphone-16-pro/specs/", "https://browser.geekbench.com/ios_devices/iphone-16-pro"];
+  api.schema = { phone_name: { type: "string" }, display_inches: { type: "number" },
+    single_core_score: { type: "integer" }, source_url: { type: "string" } };
+  store.saveApiJob(api);
+  const reviewedPrior: Array<string | null | undefined> = [];
+  const provider = {
+    async discover() { return []; },
+    async extract(url: string, _schema: unknown, _title?: string, _request?: string, combine?: boolean) {
+      assert.equal(combine, true);
+      return url.includes("apple.com")
+        ? { data: { phone_name: "Apple iPhone 16 Pro", display_inches: 6.3, single_core_score: null }, identity: "iPhone 16 Pro" }
+        : { data: { phone_name: "iPhone 16 Pro", display_inches: null, single_core_score: 3400 }, identity: "iPhone 16 Pro" };
+    },
+  };
+  const accept = async (_request: string, _data: ApiRecordData, _url: string, _title?: string,
+    _query?: string | null, _identity?: string | null, _combine?: boolean, prior?: string | null) => {
+    reviewedPrior.push(prior); return true;
+  };
+  const result = await runApiJob(api.id, provider, undefined, undefined, undefined, accept);
+  assert.equal(result.status, "ready");
+  assert.equal(result.runSummary?.savedRecords, 1);
+  assert.deepEqual(reviewedPrior, [null, "iPhone 16 Pro"]);
+  const [record] = store.listApiRecords(api.id);
+  assert.equal(store.countApiRecords(api.id), 1);
+  assert.equal(record.data.display_inches, 6.3);
+  assert.equal(record.data.single_core_score, 3400);
+  assert.deepEqual(record.sourceUrls, api.sources);
+  assert.equal(record.fieldSources?.display_inches, api.sources[0]);
+  assert.equal(record.fieldSources?.single_core_score, api.sources[1]);
+  assert.equal(record.data.source_url, api.sources[0]);
+
+  api.sources = ["https://www.apple.com/iphone-16-pro/specs-new/", api.sources[1]];
+  store.saveApiJob(api);
+  await runApiJob(api.id, provider, undefined, undefined, undefined, accept);
+  assert.equal(store.countApiRecords(api.id), 1);
+  assert.equal(store.listApiRecords(api.id)[0].sourceUrl, api.sources[0]);
+});
+
+test("combined record refuses a second phone model and keeps verified first-source fields", async () => {
+  const api = job("provided_urls", "Combine iPhone 16 Pro specs and its benchmark");
+  api.combineSources = true;
+  api.sources = ["https://example.com/pro", "https://example.org/max"];
+  api.schema = { phone_name: { type: "string" }, display_inches: { type: "number" },
+    single_core_score: { type: "integer" }, source_url: { type: "string" } };
+  store.saveApiJob(api);
+  const result = await runApiJob(api.id, {
+    async discover() { return []; },
+    async extract(url: string) { return url.endsWith("/pro")
+      ? { data: { phone_name: "iPhone 16 Pro", display_inches: 6.3, single_core_score: null }, identity: "iPhone 16 Pro" }
+      : { data: { phone_name: "iPhone 16 Pro Max", display_inches: null, single_core_score: 3500 }, identity: "iPhone 16 Pro Max" }; },
+  }, undefined, undefined, undefined, async () => true);
+  assert.equal(result.status, "partial");
+  assert.equal(result.runSummary?.totalFailures, 1);
+  assert.equal(store.countApiRecords(api.id), 1);
+  assert.equal(store.listApiRecords(api.id)[0].data.single_core_score, null);
+  assert.deepEqual(store.listApiRecords(api.id)[0].sourceUrls, [api.sources[0]]);
+});
+
+test("automatic combined jobs search complementary sites and publish one API record", async () => {
+  const api = job("automatic", "iPhone 16 Pro display size from Apple and benchmark score from Geekbench");
+  api.combineSources = true;
+  api.sourceStrategy.searchQueries = ["iPhone 16 Pro display site:apple.com", "iPhone 16 Pro single core site:browser.geekbench.com"];
+  api.schema = { phone_name: { type: "string" }, display_inches: { type: "number" },
+    single_core_score: { type: "integer" }, source_url: { type: "string" } };
+  store.saveApiJob(api);
+  const queries: string[] = [];
+  const result = await runApiJob(api.id, {
+    async discover(query) { queries.push(query); return [{ url: query.includes("apple.com")
+      ? "https://www.apple.com/iphone-16-pro/specs/" : "https://browser.geekbench.com/ios_devices/iphone-16-pro" }]; },
+    async extract(url) { return url.includes("apple.com")
+      ? { data: { phone_name: "iPhone 16 Pro", display_inches: 6.3, single_core_score: null }, identity: "iPhone 16 Pro" }
+      : { data: { phone_name: "iPhone 16 Pro", display_inches: null, single_core_score: 3400 }, identity: "iPhone 16 Pro" }; },
+  }, undefined, async (_request, candidates, _query, combine) => { assert.equal(combine, true); return candidates; },
+  undefined, async () => true);
+  assert.deepEqual(queries, api.sourceStrategy.searchQueries);
+  assert.equal(result.status, "ready");
+  assert.equal(result.runSummary?.savedRecords, 1);
+  assert.equal(store.listApiRecords(api.id)[0].sourceUrls?.length, 2);
+});
+
+test("incomplete combined refresh keeps the previous complete phone record", async () => {
+  const api = job("provided_urls", "Combine iPhone 16 Pro specs and benchmark");
+  api.combineSources = true;
+  api.sources = ["https://example.com/specs", "https://example.org/bench"];
+  api.schema = { phone_name: { type: "string" }, display_inches: { type: "number" },
+    single_core_score: { type: "integer" }, source_url: { type: "string" } };
+  api.refreshInterval = 15;
+  store.saveApiJob(api);
+  const provider = (benchmarkWorks: boolean) => ({
+    async discover() { return []; },
+    async extract(url: string) {
+      if (url.includes("specs")) return { data: { phone_name: "iPhone 16 Pro", display_inches: 6.3,
+        single_core_score: null }, identity: "iPhone 16 Pro" };
+      if (!benchmarkWorks) throw new Error("Source returned HTTP 503.");
+      return { data: { phone_name: "iPhone 16 Pro", display_inches: null,
+        single_core_score: 3400 }, identity: "iPhone 16 Pro" };
+    },
+  });
+  await runApiJob(api.id, provider(true), undefined, undefined, undefined, async () => true);
+  const original = store.listApiRecords(api.id)[0];
+  const result = await runApiJob(api.id, provider(false), undefined, undefined, undefined, async () => true);
+  assert.equal(result.status, "partial");
+  assert.equal(result.runSummary?.savedRecords, 0);
+  assert.equal(store.listApiRecords(api.id)[0].data.single_core_score, 3400);
+  assert.equal(store.listApiRecords(api.id)[0].extractedAt, original.extractedAt);
+  assert.match(result.error || "", /Kept the previous record/);
 });
 
 test("queue prevents overlap, cancellation and expired leases recover", async () => {
@@ -154,4 +291,26 @@ test("scheduled refresh queues once and pauses after two failed cycles", () => {
   assert.equal(store.getApiJob(api.id)?.refreshPaused, true);
   assert.equal(store.getApiJob(api.id)?.nextRefreshAt, null);
   db.close();
+});
+
+test("scheduled partial runs with no usable new records pause after two cycles", () => {
+  const api = job("provided_urls");
+  api.refreshInterval = 15;
+  store.saveApiJob(api);
+  store.finishRefreshSchedule(api.id, "scheduled", "partial_stopped", 0);
+  assert.equal(store.getApiJob(api.id)?.refreshFailures, 1);
+  store.finishRefreshSchedule(api.id, "scheduled", "partial_stopped", 0);
+  assert.equal(store.getApiJob(api.id)?.refreshPaused, true);
+  assert.equal(store.getApiJob(api.id)?.nextRefreshAt, null);
+});
+
+test("a scheduled cycle that saves a record resets the no-progress count", () => {
+  const api = job("provided_urls");
+  api.refreshInterval = 15;
+  store.saveApiJob(api);
+  store.finishRefreshSchedule(api.id, "scheduled", "ready", 0);
+  assert.equal(store.getApiJob(api.id)?.refreshFailures, 1);
+  store.finishRefreshSchedule(api.id, "scheduled", "ready", 1);
+  assert.equal(store.getApiJob(api.id)?.refreshFailures, 0);
+  assert.equal(store.getApiJob(api.id)?.refreshPaused, false);
 });

@@ -1,6 +1,6 @@
 import "server-only";
 import { planApiJob } from "./planner";
-import { countApiRecords, finishRefreshSchedule, getApiJob, getLatestRun, isRunCancelled, saveApiJob, saveApiJobProgress, saveApiRecords, saveRunSummary } from "./store";
+import { countApiRecords, finishRefreshSchedule, getApiJob, getLatestRun, isRunCancelled, listApiRecords, saveApiJob, saveApiJobProgress, saveApiRecords, saveCombinedApiRecord, saveRunSummary } from "./store";
 import { cleanSourceUrls, type CreateApiJobData } from "./validation";
 import type { ApiJob, ApiRecord, RunSummary, SourceCandidate, SourceFailureCode } from "./types";
 import { firecrawlProvider, type ExtractionProvider } from "./providers/firecrawl";
@@ -11,7 +11,9 @@ import { reviewSourceCandidates } from "./source-review";
 import { presentRunResult } from "./run-presentation";
 import { missingPlannedQueries, prioritizeSearchBatches, type PlannedCandidate, type SearchBatch } from "./discovery-plan";
 import { reviewExtractedRecord } from "./record-review";
-import { suggestSourceCorrection } from "./source-correction";
+import { suggestSourceCorrection, validateSourceSuggestion } from "./source-correction";
+import { validateRecordQuality } from "./record-quality";
+import { addCombinedSource, createCombinedRecord } from "./source-merge";
 
 export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
   const now = new Date().toISOString();
@@ -23,14 +25,15 @@ export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
     id: crypto.randomUUID(), name: input.name || "Planning API job", userRequest: input.user_request,
     status: "planning", schema: {}, proposedSchema: {}, schemaConfirmedAt: null,
     sourceStrategy: { type: input.source_strategy.type, searchQueries: input.source_strategy.search_queries },
-    sources, refreshInterval: input.refresh_interval, error: null, createdAt: now, updatedAt: now,
+    sources, combineSources: input.combine_sources, refreshInterval: input.refresh_interval, error: null, createdAt: now, updatedAt: now,
     blockedDomains: [],
   };
   saveApiJob(job);
   try {
-    const plan = await planApiJob(job.userRequest);
+    const plan = await planApiJob(job.userRequest, Boolean(job.combineSources));
     job.name = input.name || plan.name;
     job.proposedSchema = plan.schema;
+    job.combineSources = Boolean(job.combineSources || plan.combineSources);
     if (job.sourceStrategy.type === "automatic") job.sourceStrategy.searchQueries = plan.searchQueries;
     job.status = "awaiting_fields";
   } catch (error) {
@@ -56,9 +59,10 @@ export async function runApiJob(
   id: string,
   provider: ExtractionProvider = firecrawlProvider,
   recovery: (input: RecoveryInput) => Promise<RecoveryDecision> = recoverSearchQuery,
-  reviewSources: (request: string, candidates: SourceCandidate[], query?: string) => Promise<SourceCandidate[]> = reviewSourceCandidates,
+  reviewSources: (request: string, candidates: SourceCandidate[], query?: string, combineSources?: boolean) => Promise<SourceCandidate[]> = reviewSourceCandidates,
   queuedRun?: { id: string; trigger: "manual" | "scheduled" },
-  reviewRecord: (request: string, data: ApiRecord["data"], sourceUrl: string, title?: string, plannedQuery?: string | null, identity?: string | null) => Promise<boolean> = reviewExtractedRecord,
+  reviewRecord: (request: string, data: ApiRecord["data"], sourceUrl: string, title?: string, plannedQuery?: string | null, identity?: string | null,
+    combineSources?: boolean, priorIdentity?: string | null, priorData?: ApiRecord["data"] | null) => Promise<boolean> = reviewExtractedRecord,
   suggestCorrection: (request: string, queries: string[]) => Promise<string | null> = suggestSourceCorrection,
 ): Promise<ApiJob> {
   const job = getApiJob(id);
@@ -92,6 +96,9 @@ export async function runApiJob(
   let searchIssue = false;
   let stopReason: string | null = null;
   const automatic = job.sourceStrategy.type === "automatic";
+  const combined = job.combineSources ? createCombinedRecord(job.schema) : null;
+  let combinedIdentity: string | null = null;
+  let completeCombinedRun = false;
 
   const search = async (query: string): Promise<SourceCandidate[]> => {
     if (cancelled()) { stopReason = "Run cancelled."; return []; }
@@ -108,7 +115,7 @@ export async function runApiJob(
       const next = filterCandidates(results, [...blocked], new Set(seen), 5);
       let reviewed: SourceCandidate[];
       try {
-        reviewed = await reviewSources(job.userRequest, next, query);
+        reviewed = await reviewSources(job.userRequest, next, query, Boolean(combined));
         const allowed = new Set(next.map((item) => item.url));
         if (new Set(reviewed.map((item) => item.url)).size !== reviewed.length ||
             reviewed.some((item) => !allowed.has(item.url))) {
@@ -180,23 +187,33 @@ export async function runApiJob(
         setStatus(job, "scraping");
         try {
           setStatus(job, "extracting");
-          const extracted = await provider.extract(candidate.url, job.schema, candidate.title, job.userRequest);
+          const extracted = await provider.extract(candidate.url, job.schema, candidate.title, job.userRequest, Boolean(combined));
           const { data, identity } = extracted;
           if (cancelled()) { stopReason = "Run cancelled."; break; }
-          if (!await reviewRecord(job.userRequest, data, candidate.url, candidate.title, candidate.plannedQuery, identity)) {
+          validateRecordQuality({ request: job.userRequest, schema: job.schema, data,
+            sourceUrl: candidate.url, sourceTitle: extracted.sourceTitle, canonicalUrl: extracted.canonicalUrl,
+            allowMissingPrice: Boolean(combined) });
+          if (!await reviewRecord(job.userRequest, data, candidate.url, candidate.title, candidate.plannedQuery, identity,
+            Boolean(combined), combinedIdentity, combined?.data)) {
             throw new Error("Record does not match the request.");
           }
           if (cancelled()) { stopReason = "Run cancelled."; break; }
           if (Object.entries(data).every(([key, value]) => key === "source_url" || value === null)) {
             throw new Error("Firecrawl returned no usable fields.");
           }
-          const record: ApiRecord = {
-            id: crypto.randomUUID(), jobId: job.id, sourceUrl: candidate.url, data,
-            extractedAt: new Date().toISOString(),
-          };
-          setStatus(job, "storing");
-          saveApiRecords(job.id, [record]);
-          summary.savedRecords++;
+          if (combined) {
+            const added = addCombinedSource(combined, data, candidate.url);
+            if (!added) throw new Error("Source supplied no new fields for the combined record.");
+            combinedIdentity ||= identity;
+          } else {
+            const record: ApiRecord = {
+              id: crypto.randomUUID(), jobId: job.id, sourceUrl: candidate.url, data,
+              extractedAt: new Date().toISOString(),
+            };
+            setStatus(job, "storing");
+            saveApiRecords(job.id, [record]);
+            summary.savedRecords++;
+          }
           if (candidate.plannedQuery) completedQueries.add(candidate.plannedQuery);
           summary.consecutiveFailures = 0;
           saveRunSummary(summary);
@@ -231,7 +248,7 @@ export async function runApiJob(
 
       if (!automatic || !(failures.length || searchIssue) ||
           !canRecover(summary.searchCalls, summary.scrapeCalls, summary.recoveryCalls,
-            missingPlannedQueries(planned, completedQueries).length ? 0 : summary.savedRecords,
+            missingPlannedQueries(planned, completedQueries).length ? 0 : (combined ? combined.sourceUrls.length : summary.savedRecords),
             summary.consecutiveFailures, summary.totalFailures, startMs)) break;
       summary.recoveryCalls++;
       saveRunSummary(summary);
@@ -242,7 +259,7 @@ export async function runApiJob(
           priorQueries: queries,
           failureCodes: failures,
           excludedDomains: [...blocked],
-          successfulRecordCount: summary.savedRecords,
+          successfulRecordCount: combined ? combined.sourceUrls.length : summary.savedRecords,
         });
       } catch {
         stopReason = "Recovery decision failed.";
@@ -255,7 +272,7 @@ export async function runApiJob(
       // Validate injected recovery providers too, not only the OpenAI implementation.
       const safe = validateRecoveryDecision(decision, {
         userRequest: job.userRequest, priorQueries: queries, failureCodes: failures,
-        excludedDomains: [...blocked], successfulRecordCount: summary.savedRecords,
+        excludedDomains: [...blocked], successfulRecordCount: combined ? combined.sourceUrls.length : summary.savedRecords,
       });
       if (safe.action !== "search_again" || !safe.query) {
         stopReason = "Recovery returned an invalid query.";
@@ -270,12 +287,44 @@ export async function runApiJob(
 
     if (!stopReason && !withinDeadline(startMs)) stopReason = "Stopped at the four-minute run limit.";
     if (cancelled()) stopReason = "Run cancelled.";
+    if (combined && combined.sourceUrls.length && !cancelled()) {
+      const primary = combined.sourceUrls[0];
+      try {
+        validateRecordQuality({ request: job.userRequest, schema: job.schema, data: combined.data, sourceUrl: primary });
+        const missingFields = Object.entries(combined.data).filter(([key, value]) => key !== "source_url" && value === null).map(([key]) => key);
+        const previous = listApiRecords(job.id)[0];
+        const lostFields = previous ? Object.entries(previous.data)
+          .filter(([key, value]) => key !== "source_url" && value !== null && combined.data[key] === null).map(([key]) => key) : [];
+        if (lostFields.length) {
+          const detail = `Kept the previous record because this refresh could not verify ${lostFields.join(", ")}.`;
+          stopReason = stopReason ? `${stopReason} ${detail}` : detail;
+        } else {
+          const record: ApiRecord = { id: job.id, jobId: job.id, sourceUrl: primary, data: combined.data,
+            sourceUrls: combined.sourceUrls, fieldSources: combined.fieldSources, extractedAt: new Date().toISOString() };
+          setStatus(job, "storing");
+          saveCombinedApiRecord(job.id, record);
+          summary.savedRecords = 1;
+        }
+        completeCombinedRun = missingFields.length === 0 && combined.conflicts.length === 0 && !lostFields.length;
+        if (missingFields.length) {
+          const detail = `Missing fields across sources: ${missingFields.join(", ")}.`;
+          stopReason = stopReason ? `${stopReason} ${detail}` : detail;
+        }
+        if (combined.conflicts.length) {
+          const detail = `Sources disagree on ${combined.conflicts.join(", ")}; retained the first verified value.`;
+          stopReason = stopReason ? `${stopReason} ${detail}` : detail;
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "Could not save the combined record.";
+        stopReason = stopReason ? `${stopReason} ${detail}` : detail;
+      }
+    }
     if (!stopReason && summary.savedRecords === 0 && summary.totalFailures) stopReason = "No usable records were extracted.";
     if (!stopReason && summary.savedRecords === 0 && automatic) stopReason = "No public source pages were found.";
     if (automatic && summary.savedRecords === 0 && searchIssue && summary.scrapeCalls === 0 &&
         !stopReason?.includes("billing") && !stopReason?.includes("rate limited") && !cancelled()) {
       try {
-        const suggestion = await suggestCorrection(job.userRequest, queries);
+        const suggestion = validateSourceSuggestion(await suggestCorrection(job.userRequest, queries), job.userRequest);
         if (suggestion) stopReason = `No matching public source pages were found. Did you mean ${suggestion}? Edit the request and create a new API to use that source.`;
       } catch { /* retain the clear discovery failure */ }
     }
@@ -303,7 +352,8 @@ export async function runApiJob(
       setStatus(job, !hasRecords ? "failed" : summary.outcome === "ready" ? "ready" : "partial",
         summary.outcome === "cancelled" ? "Run cancelled." : presentation.warning || (hasRecords ? null : "No usable records were extracted."));
       saveRunSummary(summary);
-      finishRefreshSchedule(id, summary.trigger || "manual", summary.outcome);
+      finishRefreshSchedule(id, summary.trigger || "manual", summary.outcome,
+        combined && !completeCombinedRun ? 0 : summary.savedRecords);
       job.runSummary = summary;
     } finally { runningJobs.delete(id); }
   }

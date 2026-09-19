@@ -23,6 +23,7 @@ export const CreateApiJobInput = z.object({
   user_request: z.string().trim().min(10).max(2000),
   source_strategy: SourceStrategyInput.default({ type: "automatic", search_queries: [] }),
   sources: z.array(z.string().url()).max(5).default([]),
+  combine_sources: z.boolean().default(false),
   refresh_interval: z.number().int().min(15).max(525_600).nullable().default(null),
 }).strict().superRefine((input, context) => {
   if (input.source_strategy.type === "provided_urls" && input.sources.length === 0) {

@@ -14,6 +14,7 @@ const PlanSchema = z.object({
   name: z.string().min(3).max(100),
   fields: z.array(PlannedFieldSchema).min(1).max(19),
   searchQueries: z.array(z.string().min(3).max(200)).min(1).max(5),
+  combineSources: z.boolean(),
 });
 
 const planJsonSchema = {
@@ -34,12 +35,13 @@ const planJsonSchema = {
       },
     },
     searchQueries: { type: "array", items: { type: "string" } },
+    combineSources: { type: "boolean" },
   },
-  required: ["name", "fields", "searchQueries"],
+  required: ["name", "fields", "searchQueries", "combineSources"],
   additionalProperties: false,
 } as const;
 
-export async function planApiJob(userRequest: string): Promise<ApiPlan> {
+export async function planApiJob(userRequest: string, combineRequested = false): Promise<ApiPlan> {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required to plan an API job.");
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -48,8 +50,11 @@ export async function planApiJob(userRequest: string): Promise<ApiPlan> {
     instructions: [
       "Turn the user's public-web data request into a reusable API record schema.",
       "Return a concise API name, one to nineteen fields, and one to five focused web search queries.",
-      "Define one record as one individual page about an item, entity, or event. Return only fields explicitly requested, plus an item identity field and essential units or currency needed to interpret the requested value. Do not add availability, weight, store location, or derived unit prices unless asked.",
-      "Use one separate search query for each explicitly named item or entity the user wants a record for; otherwise use one focused query. Each query should target a distinct record, not be an alternate wording for the same item.",
+      "Define one record as one item, entity, or event. Return only fields explicitly requested, plus an item identity field and essential units or currency needed to interpret the requested value. Do not add availability, weight, store location, or derived unit prices unless asked.",
+      "For separate records, use one search query per explicitly named item or entity; otherwise use one focused query. When combining sources, queries instead target complementary field groups for the same entity.",
+      "If the user wants one item enriched with facts from different sites (for example, official phone specs plus independent benchmarks), set combineSources true and provide a focused query for each source or field group. All queries must target the exact same model and variant. Otherwise set combineSources false.",
+      "If combineRequested is true, plan search queries for complementary source and field groups of one item even if the request does not explicitly say 'combine'.",
+      "When combineSources is true, one record will merge fields from multiple pages. Prefer complementary authoritative pages; do not plan different models as sources for one record.",
       "Search queries should find individual pages, not broad lists. If the user gives an explicit domain, include it with site: in a query. A retailer name alone does not imply a country or top-level domain; search across that retailer's regional sites unless the user specifies a country.",
       "Preserve exact product type, variety, model, and retailer. For grocery fruit, target fresh fruit product pages rather than trees, seeds, plants, or dried fruit; include fresh and use exclusions such as -tree when helpful.",
       "Do not assume USD or another currency unless the user specifies it. If price is a field, describe it in the source's currency and consider a separate currency field.",
@@ -60,7 +65,7 @@ export async function planApiJob(userRequest: string): Promise<ApiPlan> {
       "Do not add source_url; the platform adds that provenance field automatically.",
       "Do not plan image, screenshot, OCR, login-only, private, or inferred visual fields.",
     ].join(" "),
-    input: userRequest,
+    input: JSON.stringify({ userRequest, combineRequested }),
     text: { format: { type: "json_schema", name: "api_job_plan", strict: true, schema: planJsonSchema } },
   });
 
@@ -78,5 +83,5 @@ export async function planApiJob(userRequest: string): Promise<ApiPlan> {
     description: "Public URL used as the primary source for this record",
   };
 
-  return { name: parsed.name, schema, searchQueries: parsed.searchQueries };
+  return { name: parsed.name, schema, searchQueries: parsed.searchQueries, combineSources: combineRequested || parsed.combineSources };
 }

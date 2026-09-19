@@ -71,6 +71,14 @@ function database(): DatabaseSync {
     db.exec("UPDATE api_jobs SET next_refresh_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || refresh_interval || ' minutes') WHERE refresh_interval IS NOT NULL AND next_refresh_at IS NULL AND schema_confirmed_at IS NOT NULL");
     globalThis.webforgeSchemaVersion = 3;
   }
+  if (!globalThis.webforgeSchemaVersion || globalThis.webforgeSchemaVersion < 4) {
+    const jobColumns = db.prepare("PRAGMA table_info(api_jobs)").all() as Array<{ name: string }>;
+    if (!jobColumns.some((column) => column.name === "combine_sources")) db.exec("ALTER TABLE api_jobs ADD COLUMN combine_sources INTEGER NOT NULL DEFAULT 0");
+    const recordColumns = db.prepare("PRAGMA table_info(api_records)").all() as Array<{ name: string }>;
+    if (!recordColumns.some((column) => column.name === "source_urls_json")) db.exec("ALTER TABLE api_records ADD COLUMN source_urls_json TEXT");
+    if (!recordColumns.some((column) => column.name === "field_sources_json")) db.exec("ALTER TABLE api_records ADD COLUMN field_sources_json TEXT");
+    globalThis.webforgeSchemaVersion = 4;
+  }
   return db;
 }
 type ApiJobRow = {
@@ -79,6 +87,7 @@ type ApiJobRow = {
   refresh_interval: number | null; error: string | null; created_at: string; updated_at: string;
   blocked_domains_json: string; proposed_schema_json: string; schema_confirmed_at: string | null;
   next_refresh_at: string | null; refresh_failures: number; refresh_paused: number;
+  combine_sources: number;
 };
 type RunRow = {
   id: string; job_id: string; started_at: string; finished_at: string | null;
@@ -120,6 +129,7 @@ function mapApiJob(row: ApiJobRow): ApiJob {
   return {
     id: row.id, name: row.name, userRequest: row.user_request, status: row.status,
     schema: JSON.parse(row.schema_json) as ApiRecordSchema,
+    combineSources: Boolean(row.combine_sources),
     sourceStrategy: JSON.parse(row.source_strategy_json) as SourceStrategy,
     sources: JSON.parse(row.sources_json) as string[], refreshInterval: row.refresh_interval,
     error: row.error, createdAt: row.created_at, updatedAt: row.updated_at,
@@ -141,8 +151,8 @@ export function saveApiJob(job: ApiJob): void {
   database().prepare(`
     INSERT INTO api_jobs (id, name, user_request, status, schema_json, source_strategy_json,
       sources_json, refresh_interval, error, created_at, updated_at, blocked_domains_json,
-      proposed_schema_json, schema_confirmed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      proposed_schema_json, schema_confirmed_at, combine_sources)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name, user_request = excluded.user_request, status = excluded.status,
       schema_json = excluded.schema_json, source_strategy_json = excluded.source_strategy_json,
@@ -150,11 +160,12 @@ export function saveApiJob(job: ApiJob): void {
       error = excluded.error, updated_at = excluded.updated_at,
       blocked_domains_json = excluded.blocked_domains_json,
       proposed_schema_json = excluded.proposed_schema_json,
-      schema_confirmed_at = excluded.schema_confirmed_at
+      schema_confirmed_at = excluded.schema_confirmed_at,
+      combine_sources = excluded.combine_sources
   `).run(job.id, job.name, job.userRequest, job.status, JSON.stringify(job.schema),
     JSON.stringify(job.sourceStrategy), JSON.stringify(job.sources), job.refreshInterval,
     job.error, job.createdAt, job.updatedAt, JSON.stringify(job.blockedDomains || []),
-    JSON.stringify(job.proposedSchema || job.schema), job.schemaConfirmedAt || null);
+    JSON.stringify(job.proposedSchema || job.schema), job.schemaConfirmedAt || null, job.combineSources ? 1 : 0);
 }
 export function saveApiJobProgress(job: ApiJob): void {
   const result = database().prepare(`UPDATE api_jobs SET status = ?, error = ?, updated_at = ?,
@@ -232,11 +243,12 @@ export function enqueueDueRefreshes(): number {
   return queued;
 }
 
-export function finishRefreshSchedule(jobId: string, trigger: "manual" | "scheduled", outcome: RunOutcome): void {
+export function finishRefreshSchedule(jobId: string, trigger: "manual" | "scheduled", outcome: RunOutcome, savedRecords = 0): void {
   const db = database();
   const job = getApiJob(jobId);
   if (!job) return;
-  const failures = trigger === "scheduled" ? (outcome === "failed" ? (job.refreshFailures || 0) + 1 : 0) : job.refreshFailures || 0;
+  const failures = trigger === "scheduled" ? (outcome !== "cancelled" && savedRecords === 0
+    ? (job.refreshFailures || 0) + 1 : 0) : job.refreshFailures || 0;
   const paused = failures >= 2;
   const next = job.refreshInterval && !paused ? new Date(Date.now() + job.refreshInterval * 60_000).toISOString() : null;
   db.prepare("UPDATE api_jobs SET next_refresh_at = ?, refresh_failures = ?, refresh_paused = ? WHERE id = ?")
@@ -268,7 +280,8 @@ export function confirmApiJobFields(jobId: string, selectedFields: string[]): Ap
   if (!job) throw new Error("API job not found.");
   return job;
 }
-type ApiRecordRow = { id: string; job_id: string; source_url: string; data_json: string; extracted_at: string };
+type ApiRecordRow = { id: string; job_id: string; source_url: string; data_json: string; extracted_at: string;
+  source_urls_json: string | null; field_sources_json: string | null };
 export function countApiRecords(jobId: string): number {
   const row = database().prepare("SELECT COUNT(*) AS count FROM api_records WHERE job_id = ?").get(jobId) as { count: number };
   return row.count;
@@ -278,27 +291,45 @@ export function listApiRecords(jobId: string): ApiRecord[] {
   return rows.map((row) => ({
     id: row.id, jobId: row.job_id, sourceUrl: row.source_url,
     data: JSON.parse(row.data_json) as ApiRecordData, extractedAt: row.extracted_at,
+    sourceUrls: row.source_urls_json ? JSON.parse(row.source_urls_json) as string[] : [row.source_url],
+    fieldSources: row.field_sources_json ? JSON.parse(row.field_sources_json) as Record<string, string> : undefined,
   }));
 }
 export function saveApiRecords(jobId: string, records: ApiRecord[]): void {
   const db = database();
   const statement = db.prepare(`
-    INSERT INTO api_records (id, job_id, source_url, data_json, extracted_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO api_records (id, job_id, source_url, data_json, extracted_at, source_urls_json, field_sources_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(job_id, source_url) DO UPDATE SET
-      data_json = excluded.data_json, extracted_at = excluded.extracted_at
+      data_json = excluded.data_json, extracted_at = excluded.extracted_at,
+      source_urls_json = excluded.source_urls_json, field_sources_json = excluded.field_sources_json
   `);
   db.exec("BEGIN");
   try {
     for (const record of records) {
       if (record.jobId !== jobId) throw new Error("Record belongs to a different job.");
-      statement.run(record.id, jobId, record.sourceUrl, JSON.stringify(record.data), record.extractedAt);
+      statement.run(record.id, jobId, record.sourceUrl, JSON.stringify(record.data), record.extractedAt,
+        JSON.stringify(record.sourceUrls || [record.sourceUrl]), JSON.stringify(record.fieldSources || {}));
     }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+/** Combined jobs expose exactly one current record, even when the primary URL changes on refresh. */
+export function saveCombinedApiRecord(jobId: string, record: ApiRecord): void {
+  if (record.jobId !== jobId) throw new Error("Record belongs to a different job.");
+  const db = database();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare("DELETE FROM api_records WHERE job_id = ?").run(jobId);
+    db.prepare(`INSERT INTO api_records (id, job_id, source_url, data_json, extracted_at, source_urls_json, field_sources_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(record.id, jobId, record.sourceUrl, JSON.stringify(record.data), record.extractedAt,
+      JSON.stringify(record.sourceUrls || [record.sourceUrl]), JSON.stringify(record.fieldSources || {}));
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
 }
 
 const activeStatuses = ["planning", "queued", "discovering", "scraping", "extracting", "storing"];

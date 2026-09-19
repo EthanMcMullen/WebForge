@@ -1,6 +1,6 @@
 # WebForge
 
-WebForge turns a plain-English request for public web data into a JSON API. OpenAI plans a record schema and search queries. Firecrawl finds public pages and extracts one structured record per page. WebForge saves the records in SQLite and serves them through an API endpoint.
+WebForge turns a plain-English request for public web data into a JSON API. OpenAI plans a record schema and search queries. Firecrawl finds public pages and extracts structured fields. WebForge saves the records in SQLite and serves them through an API endpoint. A job can also combine facts from several pages about one item into one record.
 
 ## Run locally
 
@@ -23,7 +23,9 @@ In another terminal:
 npm run worker
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Enter a request such as “Create an API with the title, author, and publication date of recent articles about battery recycling.” Choose automatic discovery or supply up to five public page URLs. Click **Propose fields**, choose the fields you want in the JSON API, then click **Confirm fields and build API**. Firecrawl runs only after confirmation.
+Open [http://localhost:3000](http://localhost:3000). Enter a request such as “Create an API with the title, author, and publication date of recent articles about battery recycling.” Choose automatic discovery or supply up to five public page URLs. Click **Propose fields**, choose the fields you want in the JSON API, then click **Build API**. Firecrawl runs only after confirmation.
+
+For one item whose fields come from different sites, check **Combine sources into one record**. For example, request “iPhone 16 Pro display size from Apple and single-core benchmark score from Geekbench,” then select both fields. You can provide the two page URLs or let automatic discovery find a page for each field group. The planner can also select this mode when your request clearly calls for one item with complementary sources. Keep it off when you want a separate record per item or URL.
 
 `OPENAI_MODEL` defaults to `gpt-4.1-mini`. `WEBFORGE_DB_PATH` defaults to `.data/webforge.sqlite` under the project directory. The `.env.local` file and database are ignored by Git. The worker polls every five seconds, executes queued runs, and schedules due refreshes. Keep it running alongside the web server. `WEBFORGE_BASE_URL` can point the worker to a nondefault server address.
 
@@ -67,7 +69,9 @@ Invoke-RestMethod -Uri "http://localhost:3000/api/jobs/$($job.job.id)/records"
 
 For known pages, set `source_strategy.type` to `provided_urls` and supply `sources` as an array of public HTTP(S) URLs. A draft job cannot call `/run` or `/refresh` until fields are confirmed. After confirmation, field selection is locked for that job; create another job to use a different schema.
 
-A records response has `job_id`, `status`, `count`, and `records`. Each record includes `id`, `source_url`, `data`, and `extracted_at`. `data` contains every planned field, using `null` when the extracted value is unavailable. WebForge adds `source_url` from the actual page URL. Records remain available if a later refresh fails; the job status and error report the failure.
+Set `combine_sources` to `true` in `POST /api/jobs` to merge complementary fields from those URLs into one record. The automatic strategy can also plan source-specific searches for the same entity. The confirmed schema and source mode are fixed for that job.
+
+A records response has `job_id`, `status`, `count`, and `records`. Each record includes `id`, `source_url`, `source_urls`, `field_sources`, `data`, and `extracted_at`. `data` contains every selected field, using `null` when unavailable. In a combined record, `source_url` is the primary URL, `source_urls` lists pages that contributed fields, and `field_sources` maps each populated field to its page. A refresh that cannot verify previously populated fields keeps the earlier combined record and reports a partial run.
 
 ## How it works
 
@@ -76,17 +80,17 @@ A records response has `job_id`, `status`, `count`, and `records`. Each record i
 3. The user selects at least one proposed data field. `source_url` is always included. `PATCH /api/jobs/:id/fields` saves the confirmed schema.
 4. Firecrawl Search discovers public candidate pages for automatic jobs and excludes known unsupported domains. Provided URL jobs skip search and never switch to other sources.
 5. A separate worker claims the queued run. Firecrawl Scrape extracts the confirmed fields plus an internal identity field that is not served through the public API.
-6. WebForge checks the JSON shape, rejects empty or sparse records, and reviews each extracted record against the original request and planned subject before saving it in SQLite.
+6. WebForge checks the JSON shape and reviews each extracted page against the original request and planned subject. Combined jobs allow a page to supply a sparse subset, then merge populated fields only when the pages describe the same entity. Conflicting values retain the first source and appear in the run warning.
 7. `GET /api/jobs/:id/records` serves the stored JSON. The UI and `/runs` endpoint show progress and history.
 
 `awaiting_fields` means OpenAI has proposed fields and the user must confirm a selection. `planned` means a confirmed schema exists but extraction has not finished. `queued` means the worker has not claimed the run yet. `ready` means at least one record was saved. Other statuses show discovery, scraping, extraction, storage, or failure. A partial failure sets the job to `partial` and the latest run to `partial_stopped`; saved records stay available. The latest run summary shows search, scrape, recovery, and skipped-source counts.
 
 ## Current scope
 
-- One source page produces one record. Broad list pages may not yield every item on the page.
+- By default one source page produces one record. Combined mode targets one entity and produces one record from up to five scraped pages. Broad list pages may not yield every item on the page.
 - Each run allows at most five planned Firecrawl searches plus one recovery search, five structured scrapes, one OpenAI recovery decision, five source failures, and four minutes. Search candidates are reviewed by OpenAI before scraping. Each planned search gets its best page considered before fallback pages, and incomplete subjects are reported as partial results. These are per-run limits; there is no daily credit cap. Check your Firecrawl dashboard for actual credits used.
 - Known unsupported social domains are skipped before scraping. Firecrawl errors are classified, and an automatic job can ask OpenAI for one alternate search query when candidate pages run out. Provided URL jobs do not switch sources. Source review and numeric-price evidence checks reduce mismatches, but other extracted fields are not independently fact checked.
-- A configured `refresh_interval` schedules refreshes while the worker runs. Refreshes reuse the confirmed schema and source strategy. A job pauses scheduled refreshes after two failed scheduled runs; saving its settings resumes the schedule. Run history and the paused state appear in the UI.
+- A configured `refresh_interval` schedules refreshes while the worker runs. Refreshes reuse the confirmed schema and source strategy. A job pauses scheduled refreshes after two runs that make no usable progress; saving its settings resumes the schedule. Run history and the paused state appear in the UI.
 - Fields visible only in product images, OCR, login-only pages, and private pages are outside this version.
 - Automatic discovery checks whether search results match the request before scraping. Extracted records get a separate relevance check. If discovery finds no usable pages and detects a likely source-name typo, WebForge suggests the correction without changing the original request. For numeric prices, extraction also checks that the price appears next to the matching item in the page text. If a product page lacks its own price but a linked category card shows it, one bounded category-page fallback may supply the record.
 - The extraction provider is behind `ExtractionProvider` in `src/lib/providers/firecrawl.ts`, so a later local Qwen provider can return the same record shape.

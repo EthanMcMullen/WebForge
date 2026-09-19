@@ -15,6 +15,15 @@ export function parseSourceSuggestion(value: unknown): string | null {
   return suggestion.trim();
 }
 
+export function validateSourceSuggestion(suggestion: string | null, request: string): string | null {
+  if (!suggestion) return null;
+  const normalized = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const proposed = normalized(suggestion);
+  const original = normalized(request);
+  if (!proposed || (` ${original} `).includes(` ${proposed} `)) return null;
+  return suggestion;
+}
+
 export async function suggestSourceCorrection(request: string, queries: string[]): Promise<string | null> {
   if (!process.env.OPENAI_API_KEY) return null;
   const response = await new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 0, timeout: 12_000 }).responses.create({
@@ -28,5 +37,5 @@ export async function suggestSourceCorrection(request: string, queries: string[]
     max_output_tokens: 100,
     text: { format: { type: "json_schema", name: "source_correction", strict: true, schema: responseSchema } },
   });
-  return parseSourceSuggestion(JSON.parse(response.output_text || "null"));
+  return validateSourceSuggestion(parseSourceSuggestion(JSON.parse(response.output_text || "null")), request);
 }

@@ -18,7 +18,7 @@ export function extractionJsonSchema(schema: ApiRecordSchema): {
   return { type: "object", properties, required, additionalProperties: false };
 }
 
-export function normalizeExtractedData(raw: unknown, schema: ApiRecordSchema, sourceUrl: string): ApiRecordData {
+export function normalizeExtractedData(raw: unknown, schema: ApiRecordSchema, sourceUrl: string, allowSparse = false): ApiRecordData {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("Firecrawl returned no structured JSON object.");
   }
@@ -38,7 +38,7 @@ export function normalizeExtractedData(raw: unknown, schema: ApiRecordSchema, so
   const filled = Object.values(data).filter((value) => value !== null && value !== "").length;
   const total = Object.keys(data).length;
   if (filled === 0) throw new Error("Firecrawl returned no usable fields.");
-  if (total >= 4 && filled < Math.ceil(total / 2)) {
+  if (!allowSparse && total >= 4 && filled < Math.ceil(total / 2)) {
     throw new Error(`Firecrawl returned an incomplete record (${filled}/${total} fields).`);
   }
   data.source_url = sourceUrl;
