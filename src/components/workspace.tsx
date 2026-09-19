@@ -325,7 +325,7 @@ export function Workspace() {
                 <button type="button" className={strategy === "automatic" ? "mode active" : "mode"} onClick={() => setStrategy("automatic")}>Automatic discovery</button>
                 <button type="button" className={strategy === "provided_urls" ? "mode active" : "mode"} onClick={() => setStrategy("provided_urls")}>Provided URLs</button>
               </div>
-              <span className="mode-hint">Automatic discovery reviews source matches before scraping and tries up to five pages per run, with one bounded recovery search. You can provide up to five URLs; each run tries at most five.</span>
+              <span className="mode-hint">Automatic discovery runs up to three planned searches, reviews source matches, and tries up to five pages per run, with one bounded recovery search. You can provide up to five URLs; each run tries at most five.</span>
             </div>
 
             {strategy === "provided_urls" && <div className="seed-block"><label className="input-label" htmlFor="sources">SOURCES <span>ONE PUBLIC URL PER LINE</span></label><textarea id="sources" rows={3} value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="https://example.com/source" /></div>}

@@ -75,7 +75,7 @@ A records response has `job_id`, `status`, `count`, and `records`. Each record i
 ## Current scope
 
 - One source page produces one record. Broad list pages may not yield every item on the page.
-- Each run allows at most two Firecrawl searches, five structured scrapes, one OpenAI recovery decision, three source failures, and 90 seconds. Search candidates are reviewed by OpenAI before scraping. These are per-run limits; there is no daily credit cap. Check your Firecrawl dashboard for actual credits used.
+- Each run allows at most three planned Firecrawl searches plus one recovery search, five structured scrapes, one OpenAI recovery decision, three source failures, and 90 seconds. Search candidates are reviewed by OpenAI before scraping. These are per-run limits; there is no daily credit cap. Check your Firecrawl dashboard for actual credits used.
 - Known unsupported social domains are skipped before scraping. Firecrawl errors are classified, and an automatic job can ask OpenAI for one alternate search query when candidate pages run out. Provided URL jobs do not switch sources. Source review and numeric-price evidence checks reduce mismatches, but other extracted fields are not independently fact checked.
 - Refresh is manual. `refresh_interval` is stored for later scheduling but does not trigger automatic runs.
 - Fields visible only in product images, OCR, login-only pages, and private pages are outside this version.

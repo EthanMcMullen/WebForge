@@ -1,5 +1,6 @@
 export const RUN_LIMITS = {
-  searches: 2,
+  searches: 4,
+  plannedSearches: 3,
   scrapes: 5,
   recoveryCalls: 1,
   consecutiveFailures: 3,
@@ -24,4 +25,8 @@ export function canRecover(searchCalls: number, scrapeCalls: number, recoveryCal
   return recoveryCalls < RUN_LIMITS.recoveryCalls && savedRecords === 0 &&
     canSearch(searchCalls, startedAtMs) &&
     canScrape(scrapeCalls, consecutiveFailures, totalFailures, startedAtMs);
+}
+
+export function plannedSearchQueries(queries: string[]): string[] {
+  return [...new Set(queries.map((query) => query.trim()).filter(Boolean))].slice(0, RUN_LIMITS.plannedSearches);
 }

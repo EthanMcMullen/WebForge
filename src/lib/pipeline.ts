@@ -5,7 +5,7 @@ import { cleanSourceUrls, type CreateApiJobData } from "./validation";
 import type { ApiJob, ApiRecord, RunSummary, SourceCandidate, SourceFailureCode } from "./types";
 import { firecrawlProvider, type ExtractionProvider } from "./providers/firecrawl";
 import { DEFAULT_BLOCKED_DOMAINS, classifySourceError, domainOf, filterCandidates, isBlockedDomain, isFatalFailure } from "./source-support";
-import { RUN_LIMITS, canRecover, canSearch, withinDeadline } from "./run-budget";
+import { RUN_LIMITS, canRecover, canSearch, plannedSearchQueries, withinDeadline } from "./run-budget";
 import { recoverSearchQuery, validateRecoveryDecision, type RecoveryInput, type RecoveryDecision } from "./source-recovery";
 import { reviewSourceCandidates } from "./source-review";
 import { presentRunResult } from "./run-presentation";
@@ -88,7 +88,7 @@ export async function runApiJob(
     try {
       const results = await provider.discover(query, { excludedDomains: [...blocked], limit: 5 });
       const available = RUN_LIMITS.candidates - seen.size;
-      const next = filterCandidates(results, [...blocked], seen, available);
+      const next = filterCandidates(results, [...blocked], new Set(seen), available);
       let reviewed: SourceCandidate[];
       try {
         reviewed = await reviewSources(job.userRequest, next);
@@ -102,6 +102,7 @@ export async function runApiJob(
         throw new Error(stopReason);
       }
       summary.skippedSources += Math.max(0, results.length - reviewed.length);
+      for (const candidate of reviewed) seen.add(candidate.url);
       queue.push(...reviewed);
       if (!reviewed.length) searchIssue = true;
     } catch (error) {
@@ -117,9 +118,12 @@ export async function runApiJob(
 
   try {
     if (automatic) {
-      const query = job.sourceStrategy.searchQueries[0];
-      if (query) await search(query);
-      else searchIssue = true;
+      const planned = plannedSearchQueries(job.sourceStrategy.searchQueries);
+      if (!planned.length) searchIssue = true;
+      for (const query of planned) {
+        await search(query);
+        if (stopReason) break;
+      }
     } else {
       for (const url of job.sources.slice(0, RUN_LIMITS.candidates)) {
         if (!seen.has(url)) { seen.add(url); queue.push({ url }); }
