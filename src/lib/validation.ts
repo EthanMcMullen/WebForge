@@ -1,11 +1,41 @@
 import { isIP } from "node:net";
 import { z } from "zod";
+import { apiJobStatuses } from "./types.ts";
 
-export const CreateDatasetInput = z.object({
-  prompt: z.string().trim().min(10).max(1000),
-  mode: z.enum(["demo", "live"]).default("demo"),
-  seedUrls: z.array(z.string().url()).max(10).default([]),
+export const ApiFieldSchemaInput = z.object({
+  type: z.enum(["string", "number", "integer", "boolean"]),
+  description: z.string().trim().min(1).max(300).optional(),
+}).strict();
+
+export const ApiRecordSchemaInput = z.record(
+  z.string().regex(/^[a-z][a-z0-9_]*$/),
+  ApiFieldSchemaInput,
+).refine((schema) => Object.keys(schema).length >= 1, "Schema must contain at least one field.")
+  .refine((schema) => Object.keys(schema).length <= 20, "Schema cannot contain more than 20 fields.");
+
+export const SourceStrategyInput = z.object({
+  type: z.enum(["automatic", "provided_urls"]).default("automatic"),
+  search_queries: z.array(z.string().trim().min(3).max(200)).max(5).default([]),
+}).strict();
+
+export const CreateApiJobInput = z.object({
+  name: z.string().trim().min(3).max(100).optional(),
+  user_request: z.string().trim().min(10).max(2000),
+  source_strategy: SourceStrategyInput.default({ type: "automatic", search_queries: [] }),
+  sources: z.array(z.string().url()).max(20).default([]),
+  refresh_interval: z.number().int().min(15).max(525_600).nullable().default(null),
+}).strict().superRefine((input, context) => {
+  if (input.source_strategy.type === "provided_urls" && input.sources.length === 0) {
+    context.addIssue({ code: "custom", path: ["sources"], message: "At least one source is required when using provided_urls." });
+  }
 });
+
+export type CreateApiJobData = z.infer<typeof CreateApiJobInput>;
+
+export const UpdateApiJobStatusInput = z.object({
+  status: z.enum(apiJobStatuses),
+  error: z.string().trim().max(1000).nullable().optional(),
+}).strict();
 
 export function normalizePublicUrl(value: string): string | null {
   try {
@@ -22,5 +52,5 @@ export function normalizePublicUrl(value: string): string | null {
 }
 
 export function cleanSourceUrls(values: string[]): string[] {
-  return [...new Set(values.map(normalizePublicUrl).filter((url): url is string => Boolean(url)))].slice(0, 10);
+  return [...new Set(values.map(normalizePublicUrl).filter((url): url is string => Boolean(url)))].slice(0, 20);
 }

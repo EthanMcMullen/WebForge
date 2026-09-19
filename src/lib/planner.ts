@@ -2,17 +2,18 @@ import "server-only";
 
 import OpenAI from "openai";
 import { z } from "zod";
-import type { Plan } from "./types";
+import type { ApiPlan, ApiRecordSchema } from "./types";
+
+const PlannedFieldSchema = z.object({
+  key: z.string().regex(/^[a-z][a-z0-9_]*$/),
+  type: z.enum(["string", "number", "integer", "boolean"]),
+  description: z.string().min(1).max(300),
+});
 
 const PlanSchema = z.object({
-  name: z.string().min(3).max(80),
-  fields: z.array(z.object({
-    key: z.string().regex(/^[a-z][a-z0-9_]*$/),
-    label: z.string().min(1).max(60),
-    type: z.enum(["string", "number", "boolean"]),
-    visual: z.boolean(),
-  })).min(1).max(8),
-  searchQueries: z.array(z.string().min(3).max(160)).min(1).max(3),
+  name: z.string().min(3).max(100),
+  fields: z.array(PlannedFieldSchema).min(1).max(19),
+  searchQueries: z.array(z.string().min(3).max(200)).min(1).max(5),
 });
 
 const planJsonSchema = {
@@ -24,31 +25,51 @@ const planJsonSchema = {
       items: {
         type: "object",
         properties: {
-          key: { type: "string" }, label: { type: "string" },
-          type: { type: "string", enum: ["string", "number", "boolean"] },
-          visual: { type: "boolean" },
+          key: { type: "string" },
+          type: { type: "string", enum: ["string", "number", "integer", "boolean"] },
+          description: { type: "string" },
         },
-        required: ["key", "label", "type", "visual"], additionalProperties: false,
+        required: ["key", "type", "description"],
+        additionalProperties: false,
       },
     },
     searchQueries: { type: "array", items: { type: "string" } },
   },
-  required: ["name", "fields", "searchQueries"], additionalProperties: false,
+  required: ["name", "fields", "searchQueries"],
+  additionalProperties: false,
 } as const;
 
-export async function planRequest(prompt: string): Promise<Plan> {
-  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required for live mode.");
+export async function planApiJob(userRequest: string): Promise<ApiPlan> {
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required to plan an API job.");
+
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const response = await client.responses.create({
     model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-    instructions: "Turn a public-web data request into a small typed extraction plan. Use snake_case field keys, at most eight fields, and 1-3 concise search queries for product or source pages. Mark visual=true only if images could add evidence. Do not include private or login-only sources.",
-    input: prompt,
-    text: { format: { type: "json_schema", name: "web_data_plan", strict: true, schema: planJsonSchema } },
+    instructions: [
+      "Turn the user's public-web data request into a reusable API record schema.",
+      "Return a concise API name, one to nineteen fields, and one to five web search queries.",
+      "Use snake_case field keys and only string, number, integer, or boolean field types.",
+      "Dates must be strings whose descriptions require ISO 8601 format.",
+      "Do not add source_url; the platform adds that provenance field automatically.",
+      "Do not plan image, screenshot, OCR, login-only, private, or inferred visual fields.",
+    ].join(" "),
+    input: userRequest,
+    text: { format: { type: "json_schema", name: "api_job_plan", strict: true, schema: planJsonSchema } },
   });
+
   if (!response.output_text) throw new Error("The planning model returned no data.");
-  const plan = PlanSchema.parse(JSON.parse(response.output_text));
-  if (new Set(plan.fields.map((field) => field.key)).size !== plan.fields.length) {
+  const parsed = PlanSchema.parse(JSON.parse(response.output_text));
+  if (new Set(parsed.fields.map((field) => field.key)).size !== parsed.fields.length) {
     throw new Error("The planning model returned duplicate field names.");
   }
-  return plan;
+
+  const schema: ApiRecordSchema = Object.fromEntries(
+    parsed.fields.map((field) => [field.key, { type: field.type, description: field.description }]),
+  );
+  schema.source_url = {
+    type: "string",
+    description: "Public URL used as the primary source for this record",
+  };
+
+  return { name: parsed.name, schema, searchQueries: parsed.searchQueries };
 }

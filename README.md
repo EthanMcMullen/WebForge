@@ -1,99 +1,137 @@
 # WebForge
 
-Describe the public web data you want in plain English. WebForge turns the request into a field schema, discovers or accepts source pages, extracts candidate values from page text and images, checks their evidence, stores records, and serves them as JSON.
+WebForge turns a natural-language data request into a persistent, validated API job. The API job is the central object that discovery, scraping, extraction, storage, serving, and refresh stages will operate on.
 
-**Status:** Working local hackathon MVP. Demo mode runs without service keys. The live Browserbase/OpenAI/Jev path is implemented but cannot be exercised until those keys are configured.
+The current implementation performs live API planning and persistence. It intentionally does not scrape pages, extract records, generate sample data, or analyze images yet.
 
-## Run it
+## Run locally
 
-Requires Node.js 24 or newer.
+Requirements:
+
+- Node.js 24 or newer
+- An OpenAI API key
 
 ```powershell
 npm install
 Copy-Item .env.example .env.local
+```
+
+Add `OPENAI_API_KEY` to `.env.local`, then run:
+
+```powershell
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Choose **Demo** and click **Forge dataset** to create an illustrative laptop API. Demo records are explicitly marked `sample`; they are not claimed to be scraped or verified.
+Open [http://localhost:3000](http://localhost:3000). Every submitted request is planned live; there is no demo mode or hard-coded schema path.
 
-For live mode, add `OPENAI_API_KEY` and `BROWSERBASE_API_KEY` to `.env.local`. Add `TYPESAFE_API_KEY` to let Jev judge evidence that is not an exact text match. `BROWSERBASE_PROJECT_ID` can be added for accounts that still require it. Restart the dev server after changing environment variables. Never commit `.env.local`.
+## API job model
 
-## Current stack
+An API job contains:
 
-| Layer | Implementation |
-| --- | --- |
-| Interface and API | Next.js 16, React 19, TypeScript |
-| Request planning | OpenAI Responses API with JSON Schema output; Zod validation |
-| Discovery and page browsing | Browserbase via Stagehand 3; DuckDuckGo result pages for source discovery |
-| Text and image extraction | Stagehand extraction; OpenAI vision on a product image when a visual field has no text evidence |
-| Verification | Exact-text checks plus optional Jev typed `choice` decisions through TypeSafe AI |
-| Local database | SQLite using Node's `node:sqlite` |
+```json
+{
+  "id": "uuid",
+  "name": "Public company cybersecurity incidents",
+  "user_request": "Track major cybersecurity incidents affecting public companies.",
+  "status": "ready",
+  "schema": {
+    "title": {
+      "type": "string",
+      "description": "Name of the cybersecurity incident"
+    },
+    "company": {
+      "type": "string",
+      "description": "Affected public company"
+    },
+    "source_url": {
+      "type": "string",
+      "description": "Public URL used as the primary source for this record"
+    }
+  },
+  "source_strategy": {
+    "type": "automatic",
+    "search_queries": ["major public company cybersecurity incidents"]
+  },
+  "sources": [],
+  "refresh_interval": null,
+  "error": null,
+  "created_at": "2026-09-19T12:00:00.000Z",
+  "updated_at": "2026-09-19T12:00:01.000Z"
+}
+```
 
-The database lives in `.data/webforge.sqlite`, which is gitignored. This is a **local MVP**; SQLite on a serverless host is not durable. Use PostgreSQL/Supabase before deploying publicly. Elasticsearch remains optional for a much larger evidence index, not a scraper.
+`refresh_interval` is expressed in minutes. `null` means manual refresh.
 
-## How live mode works
+Supported lifecycle statuses are:
 
-1. The request becomes up to eight typed fields and search queries.
-2. Stagehand discovers up to five public source pages, or uses up to ten supplied URLs.
-3. Stagehand extracts one entity per page with a value, supporting quote, and image URL for each field.
-4. For visual fields with no text evidence, OpenAI inspects a product image. Uncertain observations stay unverified.
-5. Exact text matches can be accepted locally. If Jev is configured, it judges candidate claims against their extracted evidence. Missing, conflicting, and unverified values become `null` in the API. Jev sees text or the vision model's description; it does not see the image itself.
-6. Records and field-level evidence are saved in SQLite. Manual refresh keeps previous verified values as `stale` when new evidence fails.
+- `planning`
+- `discovering`
+- `scraping`
+- `extracting`
+- `storing`
+- `ready`
+- `failed`
 
-WebForge does not log into sites or bypass their access controls. Use source sites whose terms permit the intended access, and keep the page count small during the hackathon.
+At this stage, `ready` means the job definition and schema are ready for the next pipeline stage. Discovery and scraping are not started.
 
 ## API
 
 ```http
 GET  /api/config
-GET  /api/datasets
-POST /api/datasets
-GET  /api/datasets/:id
-GET  /api/datasets/:id/schema
-GET  /api/datasets/:id/records
-GET  /api/datasets/:id/records/:recordId/evidence
-POST /api/datasets/:id/refresh
+GET  /api/jobs
+POST /api/jobs
+GET  /api/jobs/:id
+GET  /api/jobs/:id/schema
 ```
 
-Create a demo dataset:
+Create a job with automatic source discovery configured for a later stage:
 
 ```powershell
-$body = @{ prompt = 'Create an API that tracks laptop name, price, availability, color, and USB-C support.'; mode = 'demo'; seedUrls = @() } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/datasets -ContentType application/json -Body $body
+$body = @{
+  user_request = "Track major cybersecurity incidents affecting public companies."
+  source_strategy = @{
+    type = "automatic"
+    search_queries = @()
+  }
+  sources = @()
+  refresh_interval = 1440
+} | ConvertTo-Json -Depth 4
+
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/jobs -ContentType application/json -Body $body
 ```
 
-For live mode, set `mode` to `live` and optionally pass public product page URLs in `seedUrls`. If `seedUrls` is empty, WebForge searches for candidate pages.
-
-A records response contains values and a status per field:
+Use known public sources instead:
 
 ```json
 {
-  "dataset_id": "...",
-  "records": [
-    {
-      "id": "...",
-      "source_url": "https://example.com/product",
-      "data": { "name": "Example Laptop", "price": 899, "usb_c": null },
-      "field_status": { "name": "verified", "price": "verified", "usb_c": "unknown" },
-      "updated_at": "2026-09-19T12:00:00Z"
-    }
-  ]
+  "user_request": "Track major cybersecurity incidents affecting public companies.",
+  "source_strategy": {
+    "type": "provided_urls",
+    "search_queries": []
+  },
+  "sources": [
+    "https://example.com/public-incident-report"
+  ],
+  "refresh_interval": null
 }
 ```
 
-## Demo and deployment limits
+## Architecture
 
-- Demo mode always shows fictional laptop products. Its values have `sample` status.
-- Live integrations have no credentials in this repository, so their success against real sites has not been verified here. Some sites may block automation or hide data behind sign-in.
-- Source discovery is intentionally small and can be skipped by supplying known product URLs. A production system needs stronger source ranking, scheduled refresh, rate controls, and monitoring.
-- API write routes have no user authentication. Keep this app local until authentication and a durable hosted database are added.
-- A failed source refresh preserves the old record as `stale` rather than silently treating it as fresh.
+| Layer | Implementation |
+| --- | --- |
+| Interface and HTTP API | Next.js 16, React 19, TypeScript |
+| Live request planning | OpenAI Responses API with strict JSON Schema output |
+| Runtime validation | Zod |
+| Local persistence | SQLite through Node's `node:sqlite` |
+| Future source discovery and scraping | Firecrawl, deliberately not connected yet |
 
-## Check the build
+The local database defaults to `.data/webforge.sqlite`. The older dataset tables, if present in an existing local database, are ignored; all new work uses the `api_jobs` table.
+
+## Verification
 
 ```powershell
+npm test
 npm run lint
 npm run build
 ```
-
-The code is organized under `src/lib` for the pipeline and `src/app/api` for the endpoints. Next.js generates `AGENTS.md` and `CLAUDE.md` when the dev server starts; they point future coding agents to the installed Next.js documentation.

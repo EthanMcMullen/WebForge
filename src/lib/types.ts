@@ -1,66 +1,81 @@
-export type FieldType = "string" | "number" | "boolean";
-export type FieldStatus = "verified" | "unknown" | "conflicting" | "unverified" | "stale" | "sample";
-export type EvidenceKind = "text" | "image" | "demo";
+export const apiJobStatuses = [
+  "planning",
+  "discovering",
+  "scraping",
+  "extracting",
+  "storing",
+  "ready",
+  "failed",
+] as const;
 
-export interface FieldDefinition {
-  key: string;
-  label: string;
-  type: FieldType;
-  visual: boolean;
+export type ApiJobStatus = (typeof apiJobStatuses)[number];
+export type ApiFieldType = "string" | "number" | "integer" | "boolean";
+export type SourceStrategyType = "automatic" | "provided_urls";
+
+export interface ApiFieldSchema {
+  type: ApiFieldType;
+  description?: string;
 }
 
-export interface FieldEvidence {
-  field: string;
-  proposedValue: string | number | boolean | null;
-  sourceUrl: string;
-  quote: string;
-  imageUrl: string | null;
-  kind: EvidenceKind;
-  confidence: number | null;
-  status: FieldStatus;
-  reason: string;
-  checkedAt: string;
+export type ApiRecordSchema = Record<string, ApiFieldSchema>;
+
+export interface SourceStrategy {
+  type: SourceStrategyType;
+  searchQueries: string[];
 }
 
-export interface Dataset {
+export interface ApiJob {
   id: string;
   name: string;
-  prompt: string;
-  mode: "demo" | "live";
-  status: "ready" | "refreshing" | "error";
-  fields: FieldDefinition[];
-  sourceUrls: string[];
+  userRequest: string;
+  status: ApiJobStatus;
+  schema: ApiRecordSchema;
+  sourceStrategy: SourceStrategy;
+  sources: string[];
+  refreshInterval: number | null;
   error: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface DatasetRecord {
+export interface ApiJobResponse {
   id: string;
-  datasetId: string;
-  sourceUrl: string;
-  data: Record<string, string | number | boolean | null>;
-  fieldStatus: Record<string, FieldStatus>;
-  evidence: FieldEvidence[];
-  updatedAt: string;
+  name: string;
+  user_request: string;
+  status: ApiJobStatus;
+  schema: ApiRecordSchema;
+  source_strategy: {
+    type: SourceStrategyType;
+    search_queries: string[];
+  };
+  sources: string[];
+  refresh_interval: number | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface Plan {
+export interface ApiPlan {
   name: string;
-  fields: FieldDefinition[];
+  schema: ApiRecordSchema;
   searchQueries: string[];
 }
 
-export interface ProposedField {
-  key: string;
-  value: string | number | boolean | null;
-  quote: string;
-  imageUrl?: string | null;
-  kind: "text" | "image";
-  confidence?: number | null;
-}
-
-export interface ProposedRecord {
-  sourceUrl: string;
-  fields: ProposedField[];
+export function toApiJobResponse(job: ApiJob): ApiJobResponse {
+  return {
+    id: job.id,
+    name: job.name,
+    user_request: job.userRequest,
+    status: job.status,
+    schema: job.schema,
+    source_strategy: {
+      type: job.sourceStrategy.type,
+      search_queries: job.sourceStrategy.searchQueries,
+    },
+    sources: job.sources,
+    refresh_interval: job.refreshInterval,
+    error: job.error,
+    created_at: job.createdAt,
+    updated_at: job.updatedAt,
+  };
 }
