@@ -7,7 +7,7 @@ const testUri = process.env.WEBFORGE_TEST_MONGODB_URI || process.env.MONGODB_URI
 if (!testUri) {
   test("MongoDB pipeline integration (run npm run test:db with MONGODB_URI configured)", { skip: true }, () => {});
 } else {
-const testDbName = `webforge_test_${crypto.randomUUID().replaceAll("-", "")}`;
+const testDbName = `webforge_test_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
 process.env.MONGODB_URI = testUri;
 process.env.MONGODB_DB_NAME = testDbName;
 const directClient = new MongoClient(testUri);
@@ -16,9 +16,11 @@ const testDb = directClient.db(testDbName);
 const store = await import("../src/lib/store.ts");
 const { runApiJob } = await import("../src/lib/pipeline.ts");
 after(async () => {
-  await testDb.dropDatabase();
-  await store.closeMongoStore();
-  await directClient.close();
+  try { await testDb.dropDatabase(); }
+  finally {
+    await store.closeMongoStore();
+    await directClient.close();
+  }
 });
 
 function job(strategy: "automatic" | "provided_urls", request = "Golden Delicious apples at Walmart"): ApiJob {
