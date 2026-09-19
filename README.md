@@ -71,10 +71,11 @@ A records response has `job_id`, `status`, `count`, and `records`. Each record i
 ## Current scope
 
 - One source page produces one record. Broad list pages may not yield every item on the page.
-- Each run allows at most two Firecrawl searches (one initial and one recovery), three structured scrapes, one OpenAI recovery decision, three source failures, and 90 seconds. These are per-run limits; there is no daily credit cap. At current Firecrawl rates, a full run is roughly 19 credits.
-- Known unsupported social domains are skipped before scraping. Firecrawl errors are classified, and an automatic job can ask OpenAI for one alternate search query when candidate pages run out. Provided URL jobs do not switch sources. Search can still return irrelevant pages; this MVP trusts Firecrawl extraction and does not fact check values.
+- Each run allows at most two Firecrawl searches, five structured scrapes, one OpenAI recovery decision, three source failures, and 90 seconds. Search candidates are reviewed by OpenAI before scraping. These are per-run limits; there is no daily credit cap. Check your Firecrawl dashboard for actual credits used.
+- Known unsupported social domains are skipped before scraping. Firecrawl errors are classified, and an automatic job can ask OpenAI for one alternate search query when candidate pages run out. Provided URL jobs do not switch sources. Source review and numeric-price evidence checks reduce mismatches, but other extracted fields are not independently fact checked.
 - Refresh is manual. `refresh_interval` is stored for later scheduling but does not trigger automatic runs.
 - Fields visible only in product images, OCR, login-only pages, and private pages are outside this version.
+- Automatic discovery checks whether search results match the request before scraping. For numeric prices, extraction also checks that the price appears next to the matching item in the page text. If a product page lacks its own price but a linked category card shows it, one bounded category-page fallback may supply the record.
 - The extraction provider is behind `ExtractionProvider` in `src/lib/providers/firecrawl.ts`, so a later local Qwen provider can return the same record shape.
 - This is a local hackathon MVP with no API authentication or hosted background worker. Add those before exposing it publicly.
 

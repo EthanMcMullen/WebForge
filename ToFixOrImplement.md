@@ -6,7 +6,9 @@ This is the WebForge backlog. These items describe work to do; they are not impl
 
 **Investigated case (Apple #2, September 19):** The request asked for the price of a Golden Delicious apple from Walmart. The saved run used one search and three scrapes, saved two records, skipped one source, made zero recovery calls, and stopped at the three-scrape limit.
 
-**What was actually saved:**
+**Implementation update (September 19):** The same prompt now reaches the exact Walmart Fresh Golden Delicious Apple product link. The product page scrape exposed an unrelated $3.97 recommendation, so WebForge rejects that price and checks the matching card on the Walmart category page. A live run saved the card's $0.89 price with one search, two scrapes, zero recovery calls, and no warning. The broader relevance, pricing, and refresh work below remains on the backlog.
+
+**What the original bad run saved:**
 - Walmart category page `/c/kp/golden-delicious` -> `price: 0.89`. The schema contained only `price` and `source_url`, so the saved record cannot show which product on that category page supplied the price. Treat this price as unverified.
 - Walmart product page `/ip/2-3-ft-Golden-Delicious-Apple-Tree/15490113913` -> `price: 94`. This is an apple **tree**, not the requested grocery apple.
 - Walmart product page `/ip/Perfect-Plants-5-Gallon-Golden-Delicious-Apple-Tree/15458213341` -> failed with `no structured json`. Another tree listing and a Red Delicious apple listing remained in the discovered queue but were not tried. The Red Delicious listing would also be the wrong variety.

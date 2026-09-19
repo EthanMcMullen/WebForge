@@ -2,9 +2,9 @@ export const apiJobStatuses = ["planning", "awaiting_fields", "planned", "discov
 export type ApiJobStatus = (typeof apiJobStatuses)[number];
 export type ApiFieldType = "string" | "number" | "integer" | "boolean";
 export type SourceStrategyType = "automatic" | "provided_urls";
-export type SourceFailureCode = "UNSUPPORTED_SITE" | "ACCESS_BLOCKED" | "NO_STRUCTURED_JSON" | "SCHEMA_MISMATCH" | "SOURCE_HTTP_ERROR" | "RATE_LIMITED" | "CONFIG_OR_BILLING" | "TRANSIENT";
+export type SourceFailureCode = "UNSUPPORTED_SITE" | "ACCESS_BLOCKED" | "NO_STRUCTURED_JSON" | "SCHEMA_MISMATCH" | "SOURCE_HTTP_ERROR" | "RATE_LIMITED" | "CONFIG_OR_BILLING" | "UNVERIFIED_PRICE" | "TRANSIENT";
 export type RunOutcome = "ready" | "partial_stopped" | "failed";
-export interface SourceCandidate { url: string; title?: string; description?: string; }
+export interface SourceCandidate { url: string; title?: string; description?: string; parentUrl?: string; }
 export interface RunSummary {
   id: string; jobId: string; startedAt: string; finishedAt: string | null;
   searchCalls: number; scrapeCalls: number; recoveryCalls: number;

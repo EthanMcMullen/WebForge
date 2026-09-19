@@ -3,7 +3,8 @@ import test from "node:test";
 import { classifySourceError, filterCandidates, isBlockedDomain } from "../src/lib/source-support.ts";
 import { RUN_LIMITS, canRecover, canScrape, canSearch } from "../src/lib/run-budget.ts";
 import { validateRecoveryDecision, type RecoveryInput } from "../src/lib/source-recovery-validation.ts";
-import { normalizeExtractedData } from "../src/lib/extraction.ts";
+import { normalizeExtractedData, verifyPriceEvidence } from "../src/lib/extraction.ts";
+import { selectReviewedCandidates } from "../src/lib/source-review-validation.ts";
 
 test("unsupported social domains are skipped before paid scraping", () => {
   const seen = new Set<string>();
@@ -11,12 +12,49 @@ test("unsupported social domains are skipped before paid scraping", () => {
     { url: "https://www.instagram.com/reel/example" },
     { url: "https://facebook.com/post/example" },
     { url: "https://example.org/search" },
+    { url: "https://www.walmart.com/c/kp/golden-delicious", title: "Golden Delicious" },
     { url: "https://example.org/item/one", title: "One" },
     { url: "https://example.org/item/one#fragment" },
   ], ["instagram.com", "facebook.com"], seen, 8);
   assert.deepEqual(candidates.map((item) => item.url), ["https://example.org/item/one"]);
   assert.equal(isBlockedDomain("sub.instagram.com", ["instagram.com"]), true);
   assert.deepEqual(filterCandidates([{ url: "https://example.org/two" }], [], seen, 0), []);
+});
+
+test("category snippets expose individual product links without scraping the category", () => {
+  const seen = new Set<string>();
+  const candidates = filterCandidates([{
+    url: "https://www.walmart.com/c/kp/golden-delicious",
+    title: "Golden Delicious Apples and Related Products",
+    description: "[Fresh Golden Delicious Apple, Each, $0.89](https://www.walmart.com/ip/Fresh-Golden-Delicious-Apple-Each/44391046?classType=REGULAR) and [Apple Tree](https://www.walmart.com/ip/Golden-Delicious-Apple-Tree/123)",
+  }], [], seen, 8);
+  assert.deepEqual(candidates.map((item) => item.url), [
+    "https://www.walmart.com/ip/Fresh-Golden-Delicious-Apple-Each/44391046?classType=REGULAR",
+    "https://www.walmart.com/ip/Golden-Delicious-Apple-Tree/123",
+  ]);
+  assert.equal(candidates[0].title, "Fresh Golden Delicious Apple, Each, $0.89");
+  assert.equal(candidates[0].parentUrl, "https://www.walmart.com/c/kp/golden-delicious");
+  assert.equal(seen.has("https://www.walmart.com/c/kp/golden-delicious"), false);
+});
+
+test("source review accepts only known unique result indices", () => {
+  const candidates = [
+    { url: "https://www.walmart.com/ip/apple-tree", title: "Golden Delicious Apple Tree" },
+    { url: "https://www.walmart.com/ip/fresh-apple", title: "Fresh Golden Delicious Apple" },
+  ];
+  assert.deepEqual(selectReviewedCandidates(candidates, { indices: [1] }), [candidates[1]]);
+  assert.throws(() => selectReviewedCandidates(candidates, { indices: [2] }));
+  assert.throws(() => selectReviewedCandidates(candidates, { indices: [1, 1] }));
+});
+
+test("a related product price cannot validate the requested apple", () => {
+  const apple = { product_name: "Fresh Golden Delicious Apple, Each", price: 3.97 };
+  const markdown = "# Fresh Golden Delicious Apple, Each\n" + "Description. ".repeat(90) +
+    "Product 1 of 5: Granny Smith Apples, current price $3.97";
+  assert.throws(() => verifyPriceEvidence(apple, markdown), /not supported/);
+  assert.doesNotThrow(() => verifyPriceEvidence({ ...apple, price: 0.89 },
+    "[Fresh Golden Delicious Apple, Each, $0.89](https://www.walmart.com/ip/apple)"));
+  assert.equal(classifySourceError(new Error("Price was not supported by source text.")), "UNVERIFIED_PRICE");
 });
 
 test("Firecrawl errors are normalized without forwarding provider text", () => {
@@ -52,12 +90,14 @@ test("recovery query is validated once and cannot target excluded domains", () =
 test("request budgets prevent extra recovery and scrape calls", () => {
   const now = Date.now();
   assert.equal(RUN_LIMITS.searches, 2);
-  assert.equal(RUN_LIMITS.scrapes, 3);
+  assert.equal(RUN_LIMITS.scrapes, 5);
   assert.equal(RUN_LIMITS.recoveryCalls, 1);
   assert.equal(canSearch(2, now), false);
-  assert.equal(canScrape(3, 0, 0, now), false);
+  assert.equal(canScrape(4, 0, 0, now), true);
+  assert.equal(canScrape(5, 0, 0, now), false);
   assert.equal(canScrape(1, 3, 3, now), false);
   assert.equal(canRecover(1, 2, 0, 0, 2, 2, now), true);
+  assert.equal(canRecover(1, 2, 0, 1, 0, 0, now), false);
   assert.equal(canRecover(1, 2, 1, 0, 2, 2, now), false);
   assert.equal(canRecover(1, 2, 0, 0, 3, 3, now), false);
   assert.equal(canRecover(1, 2, 0, 0, 0, 0, now - RUN_LIMITS.durationMs - 1), false);

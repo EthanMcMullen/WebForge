@@ -40,6 +40,34 @@ export function normalizeExtractedData(raw: unknown, schema: ApiRecordSchema, so
   return data;
 }
 
+/**
+ * Check that a numeric price appears next to the extracted item's name in
+ * Firecrawl's page text. This prevents a recommendation card's price from
+ * becoming the price of the main product.
+ */
+export function verifyPriceEvidence(
+  data: ApiRecordData,
+  markdown: string | undefined,
+  subjectHint?: string,
+): void {
+  if (typeof data.price !== "number") return;
+  const name = typeof data.product_name === "string" && data.product_name.trim()
+    ? data.product_name.trim()
+    : subjectHint?.replace(/[,\s]*[$€£]\s*\d[\d,.]*/u, "").replace(/\*+/g, "").trim();
+  if (!name || !markdown) throw new Error("Price was not supported by source text.");
+  const haystack = markdown.toLowerCase();
+  const needle = name.toLowerCase();
+  const amount = data.price.toFixed(2);
+  const pricePattern = new RegExp("[\\$€£]\\s*" + amount.replace(".", "\\.") + "(?!\\d)", "u");
+  let offset = 0;
+  while ((offset = haystack.indexOf(needle, offset)) !== -1) {
+    const nearby = markdown.slice(Math.max(0, offset - 100), offset + name.length + 350);
+    if (pricePattern.test(nearby)) return;
+    offset += needle.length;
+  }
+  throw new Error("Price was not supported by source text.");
+}
+
 export function selectSourceUrls(results: Array<{ url?: string; metadata?: { sourceURL?: string; url?: string } }>, limit = 5): string[] {
   const candidates = results.map((item) => item.url || item.metadata?.sourceURL || item.metadata?.url).filter((url): url is string => Boolean(url));
   return cleanSourceUrls(candidates).slice(0, limit);

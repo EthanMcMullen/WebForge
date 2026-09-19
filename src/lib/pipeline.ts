@@ -7,6 +7,7 @@ import { firecrawlProvider, type ExtractionProvider } from "./providers/firecraw
 import { DEFAULT_BLOCKED_DOMAINS, classifySourceError, domainOf, filterCandidates, isBlockedDomain, isFatalFailure } from "./source-support";
 import { RUN_LIMITS, canRecover, canSearch, withinDeadline } from "./run-budget";
 import { recoverSearchQuery, validateRecoveryDecision, type RecoveryInput, type RecoveryDecision } from "./source-recovery";
+import { reviewSourceCandidates } from "./source-review";
 
 export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
   const now = new Date().toISOString();
@@ -51,6 +52,7 @@ export async function runApiJob(
   id: string,
   provider: ExtractionProvider = firecrawlProvider,
   recovery: (input: RecoveryInput) => Promise<RecoveryDecision> = recoverSearchQuery,
+  reviewSources: (request: string, candidates: SourceCandidate[]) => Promise<SourceCandidate[]> = reviewSourceCandidates,
 ): Promise<ApiJob> {
   const job = getApiJob(id);
   if (!job) throw new Error("API job not found.");
@@ -86,10 +88,23 @@ export async function runApiJob(
       const results = await provider.discover(query, { excludedDomains: [...blocked], limit: 5 });
       const available = RUN_LIMITS.candidates - seen.size;
       const next = filterCandidates(results, [...blocked], seen, available);
-      summary.skippedSources += results.length - next.length;
-      queue.push(...next);
-      if (!next.length) searchIssue = true;
+      let reviewed: SourceCandidate[];
+      try {
+        reviewed = await reviewSources(job.userRequest, next);
+        const allowed = new Set(next.map((item) => item.url));
+        if (new Set(reviewed.map((item) => item.url)).size !== reviewed.length ||
+            reviewed.some((item) => !allowed.has(item.url))) {
+          throw new Error("Source review selected an unknown or duplicate URL.");
+        }
+      } catch {
+        stopReason = "Could not verify source relevance.";
+        throw new Error(stopReason);
+      }
+      summary.skippedSources += Math.max(0, results.length - reviewed.length);
+      queue.push(...reviewed);
+      if (!reviewed.length) searchIssue = true;
     } catch (error) {
+      if (stopReason === "Could not verify source relevance.") throw error;
       const code = classifySourceError(error);
       if (isFatalFailure(code)) {
         stopReason = `Firecrawl search stopped: ${code.replaceAll("_", " ").toLowerCase()}.`;
@@ -117,7 +132,7 @@ export async function runApiJob(
         break;
       }
       if (summary.scrapeCalls >= RUN_LIMITS.scrapes) {
-        stopReason = queue.length ? "Stopped at the three-scrape per-run limit." : null;
+        stopReason = queue.length ? `Stopped at the ${RUN_LIMITS.scrapes}-scrape per-run limit.` : null;
         break;
       }
       const candidate = queue.shift();
@@ -132,7 +147,7 @@ export async function runApiJob(
         setStatus(job, "scraping");
         try {
           setStatus(job, "extracting");
-          const data = await provider.extract(candidate.url, job.schema);
+          const data = await provider.extract(candidate.url, job.schema, candidate.title, job.userRequest);
           if (Object.entries(data).every(([key, value]) => key === "source_url" || value === null)) {
             throw new Error("Firecrawl returned no usable fields.");
           }
@@ -150,7 +165,15 @@ export async function runApiJob(
           summary.consecutiveFailures++;
           summary.skippedSources++;
           failures.push({ domain: host || "unknown", code });
-          errors.push(failureDescription(candidate.url, code));
+          const canTryListing = code === "UNVERIFIED_PRICE" && candidate.parentUrl && !seen.has(candidate.parentUrl);
+          if (canTryListing && candidate.parentUrl) {
+            seen.add(candidate.parentUrl);
+            queue.unshift({ url: candidate.parentUrl, title: candidate.title });
+            summary.skippedSources = Math.max(0, summary.skippedSources - 1);
+            job.sources = [...new Set([...job.sources, candidate.parentUrl])].slice(0, RUN_LIMITS.candidates);
+          } else {
+            errors.push(failureDescription(candidate.url, code));
+          }
           if (code === "UNSUPPORTED_SITE" && host) {
             blocked.add(host);
             job.blockedDomains = [...new Set([...(job.blockedDomains || []), host])];
@@ -208,7 +231,7 @@ export async function runApiJob(
     const existingCount = countApiRecords(job.id);
     const hasRecords = existingCount > 0;
     summary.finishedAt = new Date().toISOString();
-    const expectedCap = stopReason === "Stopped at the three-scrape per-run limit." &&
+    const expectedCap = stopReason === `Stopped at the ${RUN_LIMITS.scrapes}-scrape per-run limit.` &&
       summary.savedRecords > 0 && errors.length === 0;
     summary.outcome = hasRecords ? (stopReason && !expectedCap || errors.length ? "partial_stopped" : "ready") : "failed";
     summary.stopReason = stopReason || (errors.length ? `${errors.length} source(s) skipped or failed.` : null);

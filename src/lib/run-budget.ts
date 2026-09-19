@@ -1,6 +1,6 @@
 export const RUN_LIMITS = {
   searches: 2,
-  scrapes: 3,
+  scrapes: 5,
   recoveryCalls: 1,
   consecutiveFailures: 3,
   totalFailures: 3,
@@ -21,7 +21,7 @@ export function canScrape(scrapeCalls: number, consecutiveFailures: number, tota
     totalFailures < RUN_LIMITS.totalFailures && withinDeadline(startedAtMs);
 }
 export function canRecover(searchCalls: number, scrapeCalls: number, recoveryCalls: number, savedRecords: number, consecutiveFailures: number, totalFailures: number, startedAtMs: number): boolean {
-  return recoveryCalls < RUN_LIMITS.recoveryCalls && savedRecords < 2 &&
+  return recoveryCalls < RUN_LIMITS.recoveryCalls && savedRecords === 0 &&
     canSearch(searchCalls, startedAtMs) &&
     canScrape(scrapeCalls, consecutiveFailures, totalFailures, startedAtMs);
 }

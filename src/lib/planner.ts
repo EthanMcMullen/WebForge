@@ -48,8 +48,10 @@ export async function planApiJob(userRequest: string): Promise<ApiPlan> {
     instructions: [
       "Turn the user's public-web data request into a reusable API record schema.",
       "Return a concise API name, one to nineteen fields, and one to five focused web search queries.",
-      "Define one record as one individual page about an item, entity, or event. Return only fields needed for that record.",
-      "Search queries should find individual pages, not broad lists. If the user names a website, include its domain with site: in a query.",
+      "Define one record as one individual page about an item, entity, or event. Return only fields explicitly requested, plus an item identity field and essential units or currency needed to interpret the requested value. Do not add availability, weight, store location, or derived unit prices unless asked.",
+      "Search queries should find individual pages, not broad lists. If the user gives an explicit domain, include it with site: in a query. A retailer name alone does not imply a country or top-level domain; search across that retailer's regional sites unless the user specifies a country.",
+      "Preserve exact product type, variety, model, and retailer. For grocery fruit, target fresh fruit product pages rather than trees, seeds, plants, or dried fruit; include fresh and use exclusions such as -tree when helpful.",
+      "Do not assume USD or another currency unless the user specifies it. If price is a field, describe it in the source's currency and consider a separate currency field.",
       "Never invent exact source URLs; search will provide real URLs.",
       "Use snake_case field keys and only string, number, integer, or boolean field types.",
       "Dates must be strings whose descriptions require ISO 8601 format.",
