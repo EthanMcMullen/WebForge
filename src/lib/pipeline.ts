@@ -9,6 +9,7 @@ import { RUN_LIMITS, canRecover, canSearch, plannedSearchQueries, withinDeadline
 import { recoverSearchQuery, validateRecoveryDecision, type RecoveryInput, type RecoveryDecision } from "./source-recovery";
 import { reviewSourceCandidates } from "./source-review";
 import { presentRunResult } from "./run-presentation";
+import { missingPlannedQueries, prioritizeSearchBatches, type PlannedCandidate, type SearchBatch } from "./discovery-plan";
 
 export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
   const now = new Date().toISOString();
@@ -53,7 +54,7 @@ export async function runApiJob(
   id: string,
   provider: ExtractionProvider = firecrawlProvider,
   recovery: (input: RecoveryInput) => Promise<RecoveryDecision> = recoverSearchQuery,
-  reviewSources: (request: string, candidates: SourceCandidate[]) => Promise<SourceCandidate[]> = reviewSourceCandidates,
+  reviewSources: (request: string, candidates: SourceCandidate[], query?: string) => Promise<SourceCandidate[]> = reviewSourceCandidates,
 ): Promise<ApiJob> {
   const job = getApiJob(id);
   if (!job) throw new Error("API job not found.");
@@ -68,7 +69,9 @@ export async function runApiJob(
     totalFailures: 0, savedRecords: 0, skippedSources: 0, outcome: "failed", stopReason: null,
   };
   const blocked = new Set([...DEFAULT_BLOCKED_DOMAINS, ...(job.blockedDomains || [])]);
-  const queue: SourceCandidate[] = [];
+  const queue: PlannedCandidate[] = [];
+  const planned = job.sourceStrategy.type === "automatic" ? plannedSearchQueries(job.sourceStrategy.searchQueries) : [];
+  const completedQueries = new Set<string>();
   const seen = new Set<string>();
   const queries: string[] = [];
   const failures: Array<{ domain: string; code: SourceFailureCode }> = [];
@@ -77,21 +80,20 @@ export async function runApiJob(
   let stopReason: string | null = null;
   const automatic = job.sourceStrategy.type === "automatic";
 
-  const search = async (query: string) => {
+  const search = async (query: string): Promise<SourceCandidate[]> => {
     if (!canSearch(summary.searchCalls, startMs)) {
       stopReason = "Stopped at the search or time limit.";
-      return;
+      return [];
     }
     summary.searchCalls++;
     queries.push(query);
     setStatus(job, "discovering");
     try {
       const results = await provider.discover(query, { excludedDomains: [...blocked], limit: 5 });
-      const available = RUN_LIMITS.candidates - seen.size;
-      const next = filterCandidates(results, [...blocked], new Set(seen), available);
+      const next = filterCandidates(results, [...blocked], new Set(seen), 5);
       let reviewed: SourceCandidate[];
       try {
-        reviewed = await reviewSources(job.userRequest, next);
+        reviewed = await reviewSources(job.userRequest, next, query);
         const allowed = new Set(next.map((item) => item.url));
         if (new Set(reviewed.map((item) => item.url)).size !== reviewed.length ||
             reviewed.some((item) => !allowed.has(item.url))) {
@@ -103,8 +105,8 @@ export async function runApiJob(
       }
       summary.skippedSources += Math.max(0, results.length - reviewed.length);
       for (const candidate of reviewed) seen.add(candidate.url);
-      queue.push(...reviewed);
       if (!reviewed.length) searchIssue = true;
+      return reviewed;
     } catch (error) {
       if (stopReason === "Could not verify source relevance.") throw error;
       const code = classifySourceError(error);
@@ -113,27 +115,31 @@ export async function runApiJob(
         throw new Error(stopReason);
       }
       searchIssue = true;
+      return [];
     }
   };
 
   try {
     if (automatic) {
-      const planned = plannedSearchQueries(job.sourceStrategy.searchQueries);
+      const batches: SearchBatch[] = [];
       if (!planned.length) searchIssue = true;
       for (const query of planned) {
-        await search(query);
+        batches.push({ query, candidates: await search(query) });
         if (stopReason) break;
       }
+      queue.push(...prioritizeSearchBatches(batches, RUN_LIMITS.candidates));
+      summary.skippedSources += Math.max(0, batches.reduce((sum, batch) => sum + batch.candidates.length, 0) - queue.length);
     } else {
       for (const url of job.sources.slice(0, RUN_LIMITS.candidates)) {
-        if (!seen.has(url)) { seen.add(url); queue.push({ url }); }
+        if (!seen.has(url)) { seen.add(url); queue.push({ url, plannedQuery: null }); }
       }
     }
     if (automatic && queue.length) job.sources = queue.map((candidate) => candidate.url);
 
     while (!stopReason && withinDeadline(startMs)) {
+      if (automatic && planned.length > 1 && missingPlannedQueries(planned, completedQueries).length === 0) break;
       if (summary.consecutiveFailures >= RUN_LIMITS.consecutiveFailures || summary.totalFailures >= RUN_LIMITS.totalFailures) {
-        stopReason = "Stopped after three source failures in this run.";
+        stopReason = "Stopped after five source failures in this run.";
         break;
       }
       if (summary.scrapeCalls >= RUN_LIMITS.scrapes) {
@@ -142,6 +148,10 @@ export async function runApiJob(
       }
       const candidate = queue.shift();
       if (candidate) {
+        if (automatic && planned.length > 1 && candidate.plannedQuery && completedQueries.has(candidate.plannedQuery)) {
+          summary.skippedSources++;
+          continue;
+        }
         const host = domainOf(candidate.url);
         if (host && isBlockedDomain(host, [...blocked])) {
           summary.skippedSources++;
@@ -163,6 +173,7 @@ export async function runApiJob(
           setStatus(job, "storing");
           saveApiRecords(job.id, [record]);
           summary.savedRecords++;
+          if (candidate.plannedQuery) completedQueries.add(candidate.plannedQuery);
           summary.consecutiveFailures = 0;
         } catch (error) {
           const code = classifySourceError(error);
@@ -173,7 +184,7 @@ export async function runApiJob(
           const canTryListing = code === "UNVERIFIED_PRICE" && candidate.parentUrl && !seen.has(candidate.parentUrl);
           if (canTryListing && candidate.parentUrl) {
             seen.add(candidate.parentUrl);
-            queue.unshift({ url: candidate.parentUrl, title: candidate.title });
+            queue.unshift({ url: candidate.parentUrl, title: candidate.title, plannedQuery: candidate.plannedQuery });
             summary.skippedSources = Math.max(0, summary.skippedSources - 1);
             job.sources = [...new Set([...job.sources, candidate.parentUrl])].slice(0, RUN_LIMITS.candidates);
           } else {
@@ -222,14 +233,20 @@ export async function runApiJob(
         stopReason = "Recovery returned an invalid query.";
         break;
       }
-      await search(safe.query);
+      const recovered = await search(safe.query);
+      queue.push(...recovered.map((candidate) => ({ ...candidate, plannedQuery: planned.length === 1 ? planned[0] : null })));
       if (queue.length) job.sources = [...new Set([...job.sources, ...queue.map((item) => item.url)])].slice(0, RUN_LIMITS.candidates);
       if (!queue.length && !stopReason) stopReason = "Recovery search found no usable public pages.";
     }
 
-    if (!stopReason && !withinDeadline(startMs)) stopReason = "Stopped at the 90-second run limit.";
+    if (!stopReason && !withinDeadline(startMs)) stopReason = "Stopped at the four-minute run limit.";
     if (!stopReason && summary.savedRecords === 0 && summary.totalFailures) stopReason = "No usable records were extracted.";
     if (!stopReason && summary.savedRecords === 0 && automatic) stopReason = "No public source pages were found.";
+    const missing = missingPlannedQueries(planned, completedQueries);
+    if (automatic && summary.savedRecords > 0 && missing.length) {
+      const coverage = `No record was updated for ${missing.length} of ${planned.length} planned searches: ${missing.map((query) => query.slice(0, 80)).join("; ")}.`;
+      stopReason = stopReason ? `${stopReason} ${coverage}` : coverage;
+    }
   } catch (error) {
     stopReason = error instanceof Error ? error.message : "Run failed.";
   } finally {
@@ -244,7 +261,7 @@ export async function runApiJob(
     });
     summary.outcome = presentation.outcome;
     summary.stopReason = presentation.stopReason;
-    setStatus(job, hasRecords ? "ready" : "failed",
+    setStatus(job, !hasRecords ? "failed" : presentation.outcome === "partial_stopped" ? "partial" : "ready",
       presentation.warning || (hasRecords ? null : "No usable records were extracted."));
     saveRunSummary(summary);
     job.runSummary = summary;

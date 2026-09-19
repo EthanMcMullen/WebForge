@@ -1,12 +1,12 @@
 export const RUN_LIMITS = {
-  searches: 4,
-  plannedSearches: 3,
+  searches: 6,
+  plannedSearches: 5,
   scrapes: 5,
   recoveryCalls: 1,
-  consecutiveFailures: 3,
-  totalFailures: 3,
+  consecutiveFailures: 5,
+  totalFailures: 5,
   candidates: 8,
-  durationMs: 90_000,
+  durationMs: 240_000,
 } as const;
 
 export function withinDeadline(startedAtMs: number): boolean {

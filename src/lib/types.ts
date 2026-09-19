@@ -1,4 +1,4 @@
-export const apiJobStatuses = ["planning", "awaiting_fields", "planned", "discovering", "scraping", "extracting", "storing", "ready", "failed"] as const;
+export const apiJobStatuses = ["planning", "awaiting_fields", "planned", "discovering", "scraping", "extracting", "storing", "ready", "partial", "failed"] as const;
 export type ApiJobStatus = (typeof apiJobStatuses)[number];
 export type ApiFieldType = "string" | "number" | "integer" | "boolean";
 export type SourceStrategyType = "automatic" | "provided_urls";

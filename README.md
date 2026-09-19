@@ -70,12 +70,12 @@ A records response has `job_id`, `status`, `count`, and `records`. Each record i
 6. WebForge checks the returned JSON shape, rejects empty or very sparse records, and saves each successful record immediately in SQLite.
 7. `GET /api/jobs/:id/records` serves the stored JSON.
 
-`awaiting_fields` means OpenAI has proposed fields and the user must confirm a selection. `planned` means a confirmed schema exists but extraction has not finished. `ready` means at least one record was saved. Other statuses show discovery, scraping, extraction, storage, or failure. A partial failure can leave the job `ready`, while the latest run shows `partial_stopped`. The latest run summary shows search, scrape, recovery, and skipped-source counts.
+`awaiting_fields` means OpenAI has proposed fields and the user must confirm a selection. `planned` means a confirmed schema exists but extraction has not finished. `ready` means at least one record was saved. Other statuses show discovery, scraping, extraction, storage, or failure. A partial failure sets the job to `partial` and the latest run to `partial_stopped`; saved records stay available. The latest run summary shows search, scrape, recovery, and skipped-source counts.
 
 ## Current scope
 
 - One source page produces one record. Broad list pages may not yield every item on the page.
-- Each run allows at most three planned Firecrawl searches plus one recovery search, five structured scrapes, one OpenAI recovery decision, three source failures, and 90 seconds. Search candidates are reviewed by OpenAI before scraping. These are per-run limits; there is no daily credit cap. Check your Firecrawl dashboard for actual credits used.
+- Each run allows at most five planned Firecrawl searches plus one recovery search, five structured scrapes, one OpenAI recovery decision, five source failures, and four minutes. Search candidates are reviewed by OpenAI before scraping. Each planned search gets its best page considered before fallback pages, and incomplete subjects are reported as partial results. These are per-run limits; there is no daily credit cap. Check your Firecrawl dashboard for actual credits used.
 - Known unsupported social domains are skipped before scraping. Firecrawl errors are classified, and an automatic job can ask OpenAI for one alternate search query when candidate pages run out. Provided URL jobs do not switch sources. Source review and numeric-price evidence checks reduce mismatches, but other extracted fields are not independently fact checked.
 - Refresh is manual. `refresh_interval` is stored for later scheduling but does not trigger automatic runs.
 - Fields visible only in product images, OCR, login-only pages, and private pages are outside this version.

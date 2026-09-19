@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { classifySourceError, filterCandidates, isBlockedDomain } from "../src/lib/source-support.ts";
+import { missingPlannedQueries, prioritizeSearchBatches } from "../src/lib/discovery-plan.ts";
 import { RUN_LIMITS, canRecover, canScrape, canSearch, plannedSearchQueries } from "../src/lib/run-budget.ts";
 import { validateRecoveryDecision, type RecoveryInput } from "../src/lib/source-recovery-validation.ts";
 import { normalizeExtractedData, verifyPriceEvidence } from "../src/lib/extraction.ts";
@@ -94,22 +95,36 @@ test("recovery query is validated once and cannot target excluded domains", () =
 
 test("request budgets prevent extra recovery and scrape calls", () => {
   const now = Date.now();
-  assert.equal(RUN_LIMITS.searches, 4);
+  assert.equal(RUN_LIMITS.searches, 6);
+  assert.equal(RUN_LIMITS.plannedSearches, 5);
   assert.equal(RUN_LIMITS.scrapes, 5);
   assert.equal(RUN_LIMITS.recoveryCalls, 1);
-  assert.equal(canSearch(4, now), false);
+  assert.equal(canSearch(6, now), false);
   assert.equal(canScrape(4, 0, 0, now), true);
   assert.equal(canScrape(5, 0, 0, now), false);
-  assert.equal(canScrape(1, 3, 3, now), false);
+  assert.equal(canScrape(1, 5, 5, now), false);
   assert.equal(canRecover(1, 2, 0, 0, 2, 2, now), true);
   assert.equal(canRecover(1, 2, 0, 1, 0, 0, now), false);
   assert.equal(canRecover(1, 2, 1, 0, 2, 2, now), false);
-  assert.equal(canRecover(1, 2, 0, 0, 3, 3, now), false);
+  assert.equal(canRecover(1, 2, 0, 0, 5, 5, now), false);
   assert.equal(canRecover(1, 2, 0, 0, 0, 0, now - RUN_LIMITS.durationMs - 1), false);
 });
 
 
 test("planned discovery searches every requested subject within a fixed budget", () => {
   assert.deepEqual(plannedSearchQueries([" JavaScript MDN ", "HTML MDN", "CSS MDN", "HTML MDN", "extra query"]),
-    ["JavaScript MDN", "HTML MDN", "CSS MDN"]);
+    ["JavaScript MDN", "HTML MDN", "CSS MDN", "extra query"]);
+});
+
+
+test("discovery gives each subject a source before trying fallbacks", () => {
+  const batches = [
+    { query: "JavaScript", candidates: [{ url: "https://mdn.test/js" }, { url: "https://mdn.test/js2" }, { url: "https://mdn.test/js3" }] },
+    { query: "HTML", candidates: [{ url: "https://mdn.test/html" }] },
+    { query: "CSS", candidates: [{ url: "https://mdn.test/css" }] },
+  ];
+  const ordered = prioritizeSearchBatches(batches, 5);
+  assert.deepEqual(ordered.map((candidate) => candidate.plannedQuery), ["JavaScript", "HTML", "CSS", "JavaScript", "JavaScript"]);
+  assert.deepEqual(missingPlannedQueries(batches.map((batch) => batch.query), new Set(["JavaScript"])), ["HTML", "CSS"]);
+  assert.deepEqual(missingPlannedQueries(batches.map((batch) => batch.query), new Set(["JavaScript", "HTML", "CSS"])), []);
 });

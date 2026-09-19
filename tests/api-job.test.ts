@@ -6,7 +6,7 @@ import { ApiRecordSchemaInput, CreateApiJobInput, cleanSourceUrls, normalizePubl
 
 test("API jobs support every pipeline lifecycle status", () => {
   assert.deepEqual(apiJobStatuses, [
-    "planning", "awaiting_fields", "planned", "discovering", "scraping", "extracting", "storing", "ready", "failed",
+    "planning", "awaiting_fields", "planned", "discovering", "scraping", "extracting", "storing", "ready", "partial", "failed",
   ]);
 });
 
