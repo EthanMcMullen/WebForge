@@ -1,17 +1,17 @@
 # WebForge
 
-WebForge turns a plain-English request for public web data into a JSON API. OpenAI plans a record schema and search queries. Firecrawl finds public pages and extracts structured fields. WebForge saves the records in SQLite and serves them through an API endpoint. A job can also combine facts from several pages about one item into one record.
+WebForge turns a plain-English request for public web data into a JSON API. OpenAI plans a record schema and search queries. Firecrawl finds public pages and extracts structured fields. WebForge saves the records in MongoDB Atlas and serves them through an API endpoint. A job can also combine facts from several pages about one item into one record.
 
 ## Run locally
 
-Requires Node.js 24 or newer, an OpenAI API key, and a Firecrawl API key.
+Requires Node.js 24 or newer, a MongoDB Atlas cluster, an OpenAI API key, and a Firecrawl API key.
 
 ```powershell
 npm install
-Copy-Item .env.example .env.local
+if (-not (Test-Path .env.local)) { Copy-Item .env.example .env.local }
 ```
 
-Set `OPENAI_API_KEY`, `FIRECRAWL_API_KEY`, and a long random `WEBFORGE_WORKER_TOKEN` in `.env.local`. For shared access or deployment, also set `WEBFORGE_ACCESS_TOKEN` to a different long random value. Start the web server and worker in separate terminals:
+Set `OPENAI_API_KEY`, `FIRECRAWL_API_KEY`, `MONGODB_URI`, and a long random `WEBFORGE_WORKER_TOKEN` in `.env.local`. Copy the Atlas Node.js driver connection string into `MONGODB_URI`, replacing the database username and password placeholders locally. Add your current IP in Atlas Network Access. Keep the full URI private and do not commit `.env.local`. Percent-encode reserved characters in the password when inserting it into the URI. For shared access or deployment, also set `WEBFORGE_ACCESS_TOKEN` to a different long random value. Start the web server and worker in separate terminals:
 
 ```powershell
 npm run dev
@@ -29,7 +29,7 @@ Automatic discovery offers three loose record targets: **Focused** uses up to tw
 
 For one item whose fields come from different sites, check **Combine sources into one record**. For example, request “iPhone 16 Pro display size from Apple and single-core benchmark score from Geekbench,” then select both fields. You can provide the two page URLs or let automatic discovery find a page for each field group. The planner can also select this mode when your request clearly calls for one item with complementary sources. Keep it off when you want a separate record per item or URL.
 
-`OPENAI_MODEL` defaults to `gpt-4.1-mini`. `WEBFORGE_DB_PATH` defaults to `.data/webforge.sqlite` under the project directory. The `.env.local` file and database are ignored by Git. The worker polls every five seconds, executes queued runs, and schedules due refreshes. Keep it running alongside the web server. `WEBFORGE_BASE_URL` can point the worker to a nondefault server address.
+`OPENAI_MODEL` defaults to `gpt-4.1-mini`. `MONGODB_DB_NAME` defaults to `webforge`. MongoDB Atlas is the only database backend; older local SQLite jobs are not automatically migrated. `.env.local` is ignored by Git. Run `npm run db:check` to verify the Atlas connection before starting the app. Run `npm run test:db` for MongoDB pipeline integration tests after adding `MONGODB_URI`; they create and remove a separate temporary database. Set `WEBFORGE_TEST_MONGODB_URI` if you want those tests to use a different cluster. The worker polls every five seconds, executes queued runs, and schedules due refreshes. Keep it running alongside the web server. `WEBFORGE_BASE_URL` can point the worker to a nondefault server address.
 
 ## CLI / VS Code terminal
 
@@ -125,7 +125,7 @@ A records response has `job_id`, `status`, `count`, and `records`. Each record i
 - Fields visible only in product images, OCR, login-only pages, and private pages are outside this version.
 - Automatic discovery checks whether search results match the request before scraping. Extracted records get a separate relevance check. If discovery finds no usable pages and detects a likely source-name typo, WebForge suggests the correction without changing the original request. For numeric prices, extraction also checks that the price appears next to the matching item in the page text. If a product page lacks its own price but a linked category card shows it, one bounded category-page fallback may supply the record.
 - The extraction provider is behind `ExtractionProvider` in `src/lib/providers/firecrawl.ts`, so a later local Qwen provider can return the same record shape.
-- A shared token protects the API when configured; individual user accounts are not implemented. The worker needs a long-lived Node.js server and a writable SQLite volume. Queued runs remain in SQLite across restarts; an interrupted run is retried after its lease expires, and already saved records remain available.
+- A shared token protects the API when configured; individual user accounts are not implemented. The worker needs a long-lived Node.js server and access to MongoDB Atlas. Queued runs remain in MongoDB across restarts; an interrupted run is retried after its lease expires, and already saved records remain available.
 
 ## Verify
 

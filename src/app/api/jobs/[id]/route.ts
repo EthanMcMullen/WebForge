@@ -11,7 +11,7 @@ export async function GET(_request: Request, context: RouteContext<"/api/jobs/[i
   const denied = accessFailure(_request);
   if (denied) return denied;
   const { id } = await context.params;
-  const job = getApiJob(id);
+  const job = await getApiJob(id);
   return job
     ? NextResponse.json({ job: toApiJobResponse(job) })
     : NextResponse.json({ error: "API job not found." }, { status: 404 });
@@ -23,7 +23,7 @@ export async function PATCH(request: NextRequest, context: RouteContext<"/api/jo
   try {
     const { id } = await context.params;
     const input = UpdateApiJobInput.parse(await request.json());
-    const job = updateApiJobSettings(id, {
+    const job = await updateApiJobSettings(id, {
       name: input.name,
       refreshInterval: input.refresh_interval,
       searchDepth: input.search_depth,
@@ -40,7 +40,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext<"/api/
   if (denied) return denied;
   const { id } = await context.params;
   try {
-    return deleteApiJob(id)
+    return await deleteApiJob(id)
       ? NextResponse.json({ deleted: true })
       : NextResponse.json({ error: "API job not found." }, { status: 404 });
   } catch (error) {

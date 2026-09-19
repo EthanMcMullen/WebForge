@@ -9,10 +9,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export function GET(request: Request) {
+export async function GET(request: Request) {
   const denied = accessFailure(request);
   if (denied) return denied;
-  return NextResponse.json({ jobs: listApiJobs().map(toApiJobResponse) });
+  return NextResponse.json({ jobs: (await listApiJobs()).map(toApiJobResponse) });
 }
 
 export async function POST(request: NextRequest) {

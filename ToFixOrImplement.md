@@ -4,10 +4,10 @@ Last reviewed: September 19, 2026. Status reflects the current working tree. Che
 
 ## Current working path
 
-- Plain-English request -> OpenAI plan -> user chooses fields -> Firecrawl search and structured extraction -> SQLite records -> JSON endpoints.
+- Plain-English request -> OpenAI plan -> user chooses fields -> Firecrawl search and structured extraction -> MongoDB Atlas records -> JSON endpoints.
 - Automatic discovery has Focused (up to two searches/three scrapes), Balanced (four/six, default), and Deep (five/twelve) modes. It gives each searched subject a source attempt before fallback pages and labels missing subjects **Partial data**. One optional recovery search remains bounded. Every run also has one recovery decision, five source failures, and four minutes. Combined-source runs stop early when all requested fields are populated. These are ceilings, not expected usage.
-- The existing MDN JavaScript/HTML/CSS API has three records. Earlier live isolated tests confirmed both three-of-three **Ready** and one-missing **Partial data** outcomes. The current mocked suite has 57 passing tests, and lint and build pass.
-- `refresh_interval` schedules work through the separate `npm run worker` process. Restart the server and worker after changing keys or pulling code. `.env.local` and `.data/` are ignored by Git.
+- The existing MDN JavaScript/HTML/CSS API has three records. Earlier live isolated tests confirmed both three-of-three **Ready** and one-missing **Partial data** outcomes. The current default suite has 39 passing tests and one MongoDB integration-suite skip when no test URI is configured; lint and build pass.
+- `refresh_interval` schedules work through the separate `npm run worker` process. Restart the server and worker after changing keys or pulling code. `.env.local` is ignored by Git.
 
 ## 1. Discovery and failed extraction — PARTIAL
 
@@ -32,7 +32,7 @@ Still to do:
 - [x] Extract an internal identity field for relevance review without exposing it in the public record schema.
 - [ ] Save safe per-source diagnostic metadata for failed Firecrawl attempts. The old Walmart `no structured JSON` response cannot be diagnosed from persisted data alone.
 - [ ] Show estimated and actual Firecrawl credit use per run. The dashboard remains the authoritative source for actual charges.
-- [ ] Make the per-run budget configurable below its hard ceiling if needed; the current limits are fixed in code.
+- [x] Let users choose Focused, Balanced, or Deep per-run budgets below the hard ceiling.
 - [x] Base recovery on uncovered planned subjects and add repeatable mocked pipeline regressions for wrong retailer, typo discovery, refresh preservation, cancellation, and scheduling.
 
 ## 2. Optional local extraction model — TODO
@@ -53,14 +53,14 @@ Completed:
 
 Still to do:
 
-- [x] Queue runs in SQLite for a separate worker, retry an interrupted run after its lease expires, and add cancellation and progress polling after navigation.
+- [x] Queue runs in MongoDB for a separate worker, retry an interrupted run after its lease expires, and add cancellation and progress polling after navigation.
 - [x] Show source URLs and recent run history on the API detail view.
 - [ ] Expand settings/account navigation beyond connection status and the shared-workspace lock. Review keyboard focus/trapping and mobile layouts with hands-on testing.
 - [ ] Continue the visual redesign; the present dashboard and detail layout are functional but not final.
 
 ## 4. Automatic refresh — PARTIAL
 
-- [x] Use a separate worker and SQLite queue to schedule `refresh_interval`, recover expired leases, and prevent overlapping runs. A closed localhost server still cannot refresh itself.
+- [x] Use a separate worker and MongoDB queue to schedule `refresh_interval`, recover expired leases, and prevent overlapping runs. A closed localhost server still cannot refresh itself.
 - [x] Reuse the confirmed schema and known source strategy without rerunning the initial planner. Track next refresh, run history, and consecutive scheduled failures.
 - [x] Pause scheduling after two failed scheduled runs and display that state in the UI; saving settings resumes it.
 - [ ] Add record change history, actual credit tracking, and external failure alerts before offering a paid recurring service.

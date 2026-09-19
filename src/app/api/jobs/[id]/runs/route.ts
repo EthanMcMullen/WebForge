@@ -9,6 +9,6 @@ export async function GET(request: Request, context: RouteContext<"/api/jobs/[id
   const denied = accessFailure(request);
   if (denied) return denied;
   const { id } = await context.params;
-  if (!getApiJob(id)) return NextResponse.json({ error: "API job not found." }, { status: 404 });
-  return NextResponse.json({ runs: listApiJobRuns(id) });
+  if (!await getApiJob(id)) return NextResponse.json({ error: "API job not found." }, { status: 404 });
+  return NextResponse.json({ runs: await listApiJobRuns(id) });
 }

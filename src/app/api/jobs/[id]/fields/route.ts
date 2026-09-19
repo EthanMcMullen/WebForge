@@ -12,14 +12,14 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   const denied = accessFailure(request);
   if (denied) return denied;
   const { id } = await context.params;
-  const existing = getApiJob(id);
+  const existing = await getApiJob(id);
   if (!existing) return NextResponse.json({ error: "API job not found." }, { status: 404 });
   if (existing.status !== "awaiting_fields") {
     return NextResponse.json({ error: "Field selection is closed for this job." }, { status: 409 });
   }
   try {
     const input = ConfirmApiJobFieldsInput.parse(await request.json());
-    const job = confirmApiJobFields(id, input.selected_fields);
+    const job = await confirmApiJobFields(id, input.selected_fields);
     return NextResponse.json({ job: toApiJobResponse(job) });
   } catch (error) {
     const message = error instanceof z.ZodError ? "Choose one to 19 proposed data fields." :

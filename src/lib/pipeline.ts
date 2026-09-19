@@ -29,7 +29,7 @@ export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
     refreshInterval: input.refresh_interval, error: null, createdAt: now, updatedAt: now,
     blockedDomains: [],
   };
-  saveApiJob(job);
+  await saveApiJob(job);
   try {
     const plan = await planApiJob(job.userRequest, Boolean(job.combineSources));
     job.name = input.name || plan.name;
@@ -42,16 +42,16 @@ export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
     job.error = error instanceof Error ? error.message : "Planning failed.";
   }
   job.updatedAt = new Date().toISOString();
-  saveApiJob(job);
+  await saveApiJob(job);
   return job;
 }
 
 const runningJobs = new Set<string>();
-function setStatus(job: ApiJob, status: ApiJob["status"], error: string | null = null) {
+async function setStatus(job: ApiJob, status: ApiJob["status"], error: string | null = null): Promise<void> {
   job.status = status;
   job.error = error;
   job.updatedAt = new Date().toISOString();
-  saveApiJobProgress(job);
+  await saveApiJobProgress(job);
 }
 function failureDescription(url: string, code: SourceFailureCode): string {
   return `${url}: ${code.replaceAll("_", " ").toLowerCase()}`;
@@ -66,14 +66,14 @@ export async function runApiJob(
     combineSources?: boolean, priorIdentity?: string | null, priorData?: ApiRecord["data"] | null) => Promise<boolean> = reviewExtractedRecord,
   suggestCorrection: (request: string, queries: string[]) => Promise<string | null> = suggestSourceCorrection,
 ): Promise<ApiJob> {
-  const job = getApiJob(id);
+  const job = await getApiJob(id);
   if (!job) throw new Error("API job not found.");
   if (!job.schemaConfirmedAt) throw new Error("Confirm the proposed fields before running Firecrawl.");
   if (!Object.keys(job.schema).length) throw new Error("This job has no confirmed schema.");
   if (runningJobs.has(id)) throw new Error("This job is already running.");
   runningJobs.add(id);
   const startMs = Date.now();
-  const resumed = queuedRun ? getLatestRun(id) : null;
+  const resumed = queuedRun ? await getLatestRun(id) : null;
   const previous = resumed?.id === queuedRun?.id ? resumed : null;
   const summary: RunSummary = {
     id: queuedRun?.id || crypto.randomUUID(), jobId: id, startedAt: previous?.startedAt || new Date(startMs).toISOString(), finishedAt: null,
@@ -83,9 +83,9 @@ export async function runApiJob(
     skippedSources: previous?.skippedSources || 0, outcome: "running", stopReason: null,
     trigger: queuedRun?.trigger || "manual",
   };
-  try { saveRunSummary(summary); }
+  try { await saveRunSummary(summary); }
   catch (error) { runningJobs.delete(id); throw error; }
-  const cancelled = () => queuedRun ? isRunCancelled(queuedRun.id) : false;
+  const cancelled = async () => queuedRun ? isRunCancelled(queuedRun.id) : false;
   const blocked = new Set([...DEFAULT_BLOCKED_DOMAINS, ...(job.blockedDomains || [])]);
   const queue: PlannedCandidate[] = [];
   const automatic = job.sourceStrategy.type === "automatic";
@@ -103,15 +103,15 @@ export async function runApiJob(
   let completeCombinedRun = false;
 
   const search = async (query: string): Promise<SourceCandidate[]> => {
-    if (cancelled()) { stopReason = "Run cancelled."; return []; }
+    if (await cancelled()) { stopReason = "Run cancelled."; return []; }
     if (!canSearch(summary.searchCalls, startMs, limits)) {
       stopReason = "Stopped at the search or time limit.";
       return [];
     }
     summary.searchCalls++;
-    saveRunSummary(summary);
+    await saveRunSummary(summary);
     queries.push(query);
-    setStatus(job, "discovering");
+    await setStatus(job, "discovering");
     try {
       const results = await provider.discover(query, { excludedDomains: [...blocked], limit: 5 });
       const next = filterCandidates(results, [...blocked], new Set(seen), 5);
@@ -148,7 +148,7 @@ export async function runApiJob(
       const batches: SearchBatch[] = [];
       if (!planned.length) searchIssue = true;
       for (const query of planned) {
-        if (cancelled()) { stopReason = "Run cancelled."; break; }
+        if (await cancelled()) { stopReason = "Run cancelled."; break; }
         batches.push({ query, candidates: await search(query) });
         if (stopReason) break;
       }
@@ -162,7 +162,7 @@ export async function runApiJob(
     if (automatic && queue.length) job.sources = queue.map((candidate) => candidate.url);
 
     while (!stopReason && withinDeadline(startMs)) {
-      if (cancelled()) { stopReason = "Run cancelled."; break; }
+      if (await cancelled()) { stopReason = "Run cancelled."; break; }
       if (combined && Object.values(combined.data).every((value) => value !== null)) break;
       if (summary.consecutiveFailures >= RUN_LIMITS.consecutiveFailures || summary.totalFailures >= RUN_LIMITS.totalFailures) {
         stopReason = "Stopped after five source failures in this run.";
@@ -181,13 +181,13 @@ export async function runApiJob(
           continue;
         }
         summary.scrapeCalls++;
-        saveRunSummary(summary);
-        setStatus(job, "scraping");
+        await saveRunSummary(summary);
+        await setStatus(job, "scraping");
         try {
-          setStatus(job, "extracting");
+          await setStatus(job, "extracting");
           const extracted = await provider.extract(candidate.url, job.schema, candidate.title, job.userRequest, Boolean(combined));
           const { data, identity } = extracted;
-          if (cancelled()) { stopReason = "Run cancelled."; break; }
+          if (await cancelled()) { stopReason = "Run cancelled."; break; }
           validateRecordQuality({ request: job.userRequest, schema: job.schema, data,
             sourceUrl: candidate.url, sourceTitle: extracted.sourceTitle, canonicalUrl: extracted.canonicalUrl,
             allowMissingPrice: Boolean(combined) });
@@ -195,7 +195,7 @@ export async function runApiJob(
             Boolean(combined), combinedIdentity, combined?.data)) {
             throw new Error("Record does not match the request.");
           }
-          if (cancelled()) { stopReason = "Run cancelled."; break; }
+          if (await cancelled()) { stopReason = "Run cancelled."; break; }
           if (Object.entries(data).every(([key, value]) => key === "source_url" || value === null)) {
             throw new Error("Firecrawl returned no usable fields.");
           }
@@ -208,19 +208,19 @@ export async function runApiJob(
               id: crypto.randomUUID(), jobId: job.id, sourceUrl: candidate.url, data,
               extractedAt: new Date().toISOString(),
             };
-            setStatus(job, "storing");
-            saveApiRecords(job.id, [record]);
+            await setStatus(job, "storing");
+            await saveApiRecords(job.id, [record]);
             summary.savedRecords++;
           }
           if (candidate.plannedQuery) completedQueries.add(candidate.plannedQuery);
           summary.consecutiveFailures = 0;
-          saveRunSummary(summary);
+          await saveRunSummary(summary);
         } catch (error) {
           const code = classifySourceError(error);
           summary.totalFailures++;
           summary.consecutiveFailures++;
           summary.skippedSources++;
-          saveRunSummary(summary);
+          await saveRunSummary(summary);
           failures.push({ domain: host || "unknown", code });
           const canTryListing = code === "UNVERIFIED_PRICE" && candidate.parentUrl && !seen.has(candidate.parentUrl);
           if (canTryListing && candidate.parentUrl) {
@@ -234,7 +234,7 @@ export async function runApiJob(
           if (code === "UNSUPPORTED_SITE" && host) {
             blocked.add(host);
             job.blockedDomains = [...new Set([...(job.blockedDomains || []), host])];
-            saveApiJobProgress(job);
+            await saveApiJobProgress(job);
           }
           if (isFatalFailure(code)) {
             stopReason = `Firecrawl stopped: ${code.replaceAll("_", " ").toLowerCase()}.`;
@@ -249,7 +249,7 @@ export async function runApiJob(
             missingPlannedQueries(planned, completedQueries).length ? 0 : (combined ? combined.sourceUrls.length : summary.savedRecords),
             summary.consecutiveFailures, summary.totalFailures, startMs, limits)) break;
       summary.recoveryCalls++;
-      saveRunSummary(summary);
+      await saveRunSummary(summary);
       let decision: RecoveryDecision = { action: "stop", query: null };
       try {
         decision = await recovery({
@@ -284,13 +284,13 @@ export async function runApiJob(
     }
 
     if (!stopReason && !withinDeadline(startMs)) stopReason = "Stopped at the four-minute run limit.";
-    if (cancelled()) stopReason = "Run cancelled.";
-    if (combined && combined.sourceUrls.length && !cancelled()) {
+    if (await cancelled()) stopReason = "Run cancelled.";
+    if (combined && combined.sourceUrls.length && !(await cancelled())) {
       const primary = combined.sourceUrls[0];
       try {
         validateRecordQuality({ request: job.userRequest, schema: job.schema, data: combined.data, sourceUrl: primary });
         const missingFields = Object.entries(combined.data).filter(([key, value]) => key !== "source_url" && value === null).map(([key]) => key);
-        const previous = listApiRecords(job.id)[0];
+        const previous = (await listApiRecords(job.id))[0];
         const lostFields = previous ? Object.entries(previous.data)
           .filter(([key, value]) => key !== "source_url" && value !== null && combined.data[key] === null).map(([key]) => key) : [];
         if (lostFields.length) {
@@ -299,8 +299,8 @@ export async function runApiJob(
         } else {
           const record: ApiRecord = { id: job.id, jobId: job.id, sourceUrl: primary, data: combined.data,
             sourceUrls: combined.sourceUrls, fieldSources: combined.fieldSources, extractedAt: new Date().toISOString() };
-          setStatus(job, "storing");
-          saveCombinedApiRecord(job.id, record);
+          await setStatus(job, "storing");
+          await saveCombinedApiRecord(job.id, record);
           summary.savedRecords = 1;
         }
         completeCombinedRun = missingFields.length === 0 && combined.conflicts.length === 0 && !lostFields.length;
@@ -320,13 +320,13 @@ export async function runApiJob(
     if (!stopReason && summary.savedRecords === 0 && summary.totalFailures) stopReason = "No usable records were extracted.";
     if (!stopReason && summary.savedRecords === 0 && automatic) stopReason = "No public source pages were found.";
     if (automatic && summary.savedRecords === 0 && searchIssue && summary.scrapeCalls === 0 &&
-        !stopReason?.includes("billing") && !stopReason?.includes("rate limited") && !cancelled()) {
+        !stopReason?.includes("billing") && !stopReason?.includes("rate limited") && !(await cancelled())) {
       try {
         const suggestion = validateSourceSuggestion(await suggestCorrection(job.userRequest, queries), job.userRequest);
         if (suggestion) stopReason = `No matching public source pages were found. Did you mean ${suggestion}? Edit the request and create a new API to use that source.`;
       } catch { /* retain the clear discovery failure */ }
     }
-    if (cancelled()) stopReason = "Run cancelled.";
+    if (await cancelled()) stopReason = "Run cancelled.";
     const missing = missingPlannedQueries(planned, completedQueries);
     if (automatic && summary.savedRecords > 0 && missing.length) {
       const coverage = `No record was updated for ${missing.length} of ${planned.length} planned searches: ${missing.map((query) => query.slice(0, 80)).join("; ")}.`;
@@ -336,7 +336,7 @@ export async function runApiJob(
     stopReason = error instanceof Error ? error.message : "Run failed.";
   } finally {
     try {
-      const existingCount = countApiRecords(job.id);
+      const existingCount = await countApiRecords(job.id);
       job.recordCount = existingCount;
       const hasRecords = existingCount > 0;
       summary.finishedAt = new Date().toISOString();
@@ -347,10 +347,10 @@ export async function runApiJob(
       });
       summary.outcome = stopReason === "Run cancelled." ? "cancelled" : presentation.outcome;
       summary.stopReason = stopReason === "Run cancelled." ? stopReason : presentation.stopReason;
-      setStatus(job, !hasRecords ? "failed" : summary.outcome === "ready" ? "ready" : "partial",
+      await setStatus(job, !hasRecords ? "failed" : summary.outcome === "ready" ? "ready" : "partial",
         summary.outcome === "cancelled" ? "Run cancelled." : presentation.warning || (hasRecords ? null : "No usable records were extracted."));
-      saveRunSummary(summary);
-      finishRefreshSchedule(id, summary.trigger || "manual", summary.outcome,
+      await saveRunSummary(summary);
+      await finishRefreshSchedule(id, summary.trigger || "manual", summary.outcome,
         combined && !completeCombinedRun ? 0 : summary.savedRecords);
       job.runSummary = summary;
     } finally { runningJobs.delete(id); }

@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiJobResponse, SearchDepth, SourceStrategyType } from "@/lib/types";
 
-type Config = { planner_ready: boolean; extraction_ready: boolean; missing: string[] };
+type Config = { planner_ready: boolean; extraction_ready: boolean; database_ready: boolean; missing: string[] };
 type ApiRecordResponse = { id: string; job_id: string; source_url: string; source_urls: string[];
   field_sources: Record<string, string>; data: Record<string, string | number | boolean | null>; extracted_at: string };
 type RunHistory = { id: string; startedAt: string; finishedAt: string | null; trigger: "manual" | "scheduled"; outcome: string; savedRecords: number; searchCalls: number; scrapeCalls: number; stopReason: string | null; cancelRequested: boolean };
@@ -23,70 +23,43 @@ const statusLabels: Record<ApiJobResponse["status"], string> = {
   failed: "Failed",
 };
 
-const demoIdeas = [
-  "Track espresso machine prices across three retailers",
-  "List upcoming hackathons with deadlines and locations",
-  "Monitor new menu items at downtown ramen spots",
-  "Watch flight prices for NYC to Lisbon in June",
-  "Collect remote junior designer jobs posted this week",
-  "Track restocks of sold-out mechanical keyboards",
-  "List farmers markets with hours and neighborhoods",
-  "Follow GPU prices across major PC stores",
-  "Gather open grant deadlines for arts nonprofits",
-  "Monitor apartment listings under $2,000 near transit",
-  "Track vinyl reissues with release dates and labels",
-  "List tech conferences with ticket prices and dates",
-  "Watch sneaker drops with sizes and release times",
-  "Collect coffee roasters with single-origin offerings",
-  "Track EV charging station openings by city",
-  "Monitor book preorders from indie publishers",
-  "List coworking spaces with day-pass prices",
-  "Follow trail race registrations with entry fees",
-  "Track board game restocks with player counts",
-  "Collect bakery specials with pickup windows",
+const quickStarts = [
+  { label: "Price tracker", request: "Track espresso machine prices across three retailers with product name, price, and availability." },
+  { label: "Event directory", request: "List upcoming hackathons with event name, date, and location." },
+  { label: "Menu monitor", request: "Monitor new menu items at downtown ramen spots with dish name, price, and dietary tags." },
 ];
 
-const demoPatterns = {
-  prices: {
-    name: "Price tracker",
-    stats: [["Products", "1,284"], ["Stores", "32"], ["Refreshed", "2m"]],
-    head: ["Product", "Price", "Availability"],
-    rows: [
-      ["Golden Delicious, 3 lb bag", "$3.49", "In stock"],
-      ["Espresso machine, entry", "$449.00", "In stock"],
-      ["Mechanical keyboard, 75%", "$129.00", "Low stock"],
-      ["4K monitor, 27 in", "$329.99", "Out of stock"],
-    ],
-  },
-  events: {
-    name: "Event directory",
-    stats: [["Events", "86"], ["Cities", "19"], ["Refreshed", "14m"]],
-    head: ["Event", "Date", "Location"],
-    rows: [
-      ["Harbor Hackathon", "Jun 12", "Boston"],
-      ["Indie Games Expo", "Jul 3", "Austin"],
-      ["Civic Data Summit", "Jul 18", "Chicago"],
-      ["Night Market Fest", "Aug 2", "Seattle"],
-    ],
-  },
-  menus: {
-    name: "Menu monitor",
-    stats: [["Dishes", "412"], ["Spots", "27"], ["Refreshed", "1h"]],
-    head: ["Dish", "Price", "Tags"],
-    rows: [
-      ["Shoyu ramen", "$14.50", "Vegetarian option"],
-      ["Pork belly bao", "$6.25", "Contains gluten"],
-      ["Miso eggplant", "$11.00", "Vegan"],
-      ["Yuzu cheesecake", "$7.75", "Vegetarian"],
-    ],
-  },
-};
+type WorkspaceView = "dashboard" | "new" | "library" | "detail";
 
-type DemoKey = keyof typeof demoPatterns;
+function readIncomingRequest(): string | null {
+  if (typeof window === "undefined") return null;
+  const incoming = new URLSearchParams(window.location.search).get("request")?.trim();
+  return incoming ? incoming : null;
+}
 
-type WorkspaceView = "home" | "new" | "library" | "detail";
+type Handoff = { name: string; strategy: SourceStrategyType; combine: boolean; sources: string; refresh: string };
 
-const searchDepthOptions: Array<{ value: SearchDepth; label: string; range: string; combinedRange: string; hint: string }> = [
+function readHandoff(): Handoff {
+  const fallback: Handoff = { name: "", strategy: "automatic", sources: "", refresh: "", combine: false };
+  if (typeof window === "undefined") return fallback;
+  const params = new URLSearchParams(window.location.search);
+  const strategyParam = params.get("strategy");
+  return {
+    name: params.get("name")?.slice(0, 120) ?? "",
+    strategy: strategyParam === "provided_urls" ? "provided_urls" : "automatic",
+    combine: params.get("combine") === "1",
+    sources: params.get("sources")?.slice(0, 2000) ?? "",
+    refresh: params.get("refresh")?.replace(/[^0-9]/g, "").slice(0, 5) ?? "",
+  };
+}
+
+const searchDepthOptions: Array<{
+  value: SearchDepth;
+  label: string;
+  range: string;
+  combinedRange: string;
+  hint: string;
+}> = [
   { value: "focused", label: "Focused", range: "About 1–3 records", combinedRange: "Up to 3 source pages", hint: "2 searches · 3 scrapes max" },
   { value: "balanced", label: "Balanced", range: "About 3–6 records", combinedRange: "Up to 6 source pages", hint: "4 searches · 6 scrapes max" },
   { value: "deep", label: "Deep", range: "Up to 12 records", combinedRange: "Up to 12 source pages", hint: "5 searches · 12 scrapes max" },
@@ -95,7 +68,7 @@ const searchDepthOptions: Array<{ value: SearchDepth; label: string; range: stri
 export function Workspace() {
   const [jobs, setJobs] = useState<ApiJobResponse[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [view, setView] = useState<WorkspaceView>("home");
+  const [view, setView] = useState<WorkspaceView>(() => (readIncomingRequest() ? "new" : "dashboard"));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [apiSettingsOpen, setApiSettingsOpen] = useState(false);
   const [apiSettingsJobId, setApiSettingsJobId] = useState<string | null>(null);
@@ -110,21 +83,16 @@ export function Workspace() {
   const [config, setConfig] = useState<Config | null>(null);
   const [records, setRecords] = useState<ApiRecordResponse[]>([]);
   const [runs, setRuns] = useState<RunHistory[]>([]);
-  const [name, setName] = useState("");
-  const [userRequest, setUserRequest] = useState("");
-  const [strategy, setStrategy] = useState<SourceStrategyType>("automatic");
+  const [name, setName] = useState<string>(() => readHandoff().name);
+  const [userRequest, setUserRequest] = useState<string>(() => readIncomingRequest() ?? "");
+  const [strategy, setStrategy] = useState<SourceStrategyType>(() => readHandoff().strategy);
   const [searchDepth, setSearchDepth] = useState<SearchDepth>("balanced");
-  const [combineSources, setCombineSources] = useState(false);
-  const [sourceText, setSourceText] = useState("");
-  const [refreshInterval, setRefreshInterval] = useState("");
+  const [combineSources, setCombineSources] = useState<boolean>(() => readHandoff().combine);
+  const [sourceText, setSourceText] = useState<string>(() => readHandoff().sources);
+  const [refreshInterval, setRefreshInterval] = useState<string>(() => readHandoff().refresh);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [fieldSelections, setFieldSelections] = useState<Record<string, string[]>>({});
-  const [heroRequest, setHeroRequest] = useState("");
-  const [ideaIndex, setIdeaIndex] = useState(0);
-  const [demoPattern, setDemoPattern] = useState<DemoKey | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [prefersReduced] = useState(() => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
   const selected = useMemo(
     () => jobs.find((job) => job.id === selectedId) || null,
@@ -140,9 +108,21 @@ export function Workspace() {
       .filter(([key]) => key === "source_url" || selectedFields.includes(key)))
     : null;
 
+  const totals = useMemo(() => {
+    const recordTotal = jobs.reduce((sum, job) => sum + (job.record_count || 0), 0);
+    const readyTotal = jobs.filter((job) => job.status === "ready").length;
+    const activeTotal = jobs.filter((job) => ["queued", "discovering", "scraping", "extracting", "storing"].includes(job.status)).length;
+    return { apis: jobs.length, records: recordTotal, ready: readyTotal, active: activeTotal };
+  }, [jobs]);
+
+  const recentJobs = useMemo(
+    () => [...jobs].sort((a, b) => +new Date(b.updated_at) - +new Date(a.updated_at)).slice(0, 6),
+    [jobs],
+  );
+
   const loadJobs = useCallback(async (preferredId?: string) => {
     const response = await fetch("/api/jobs", { cache: "no-store" });
-    if (!response.ok) throw new Error("Could not load API jobs.");
+    if (!response.ok) throw new Error("Could not load API jobs. Check MongoDB with npm run db:check.");
     const result = await response.json() as { jobs: ApiJobResponse[] };
     setJobs(result.jobs);
     setSelectedId((current) => {
@@ -188,16 +168,43 @@ export function Workspace() {
     if (accessState !== "unlocked") return;
     void fetch("/api/jobs", { cache: "no-store" })
       .then((response) => {
-        if (!response.ok) throw new Error("Could not load API jobs.");
+        if (!response.ok) throw new Error("Could not load API jobs. Check MongoDB with npm run db:check.");
         return response.json() as Promise<{ jobs: ApiJobResponse[] }>;
       })
       .then((result) => { setJobs(result.jobs); setSelectedId(result.jobs[0]?.id || null); })
       .catch((error: Error) => setMessage(error.message));
-    void fetch("/api/config")
-      .then((response) => response.json())
-      .then((result: Config) => setConfig(result))
-      .catch(() => setMessage("Could not load configuration."));
+    const refreshConfig = () => {
+      void fetch("/api/config", { cache: "no-store" })
+        .then((response) => {
+          if (!response.ok) throw new Error("Could not load configuration.");
+          return response.json() as Promise<Config>;
+        })
+        .then(setConfig)
+        .catch(() => setMessage("Could not load configuration."));
+    };
+    const onVisibilityChange = () => { if (document.visibilityState === "visible") refreshConfig(); };
+    refreshConfig();
+    window.addEventListener("focus", refreshConfig);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", refreshConfig);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [accessState, loadJobs]);
+
+  // Clear ?request= from the marketing homepage hero after picking it up above.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!new URLSearchParams(window.location.search).get("request")) return;
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
+
+  function startQuickStart(request: string) {
+    setUserRequest(request);
+    setSelectedId(null);
+    setMessage(null);
+    setView("new");
+  }
 
   async function unlockWorkspace() {
     setAccessMessage(null);
@@ -226,9 +233,9 @@ export function Workspace() {
           ...(name.trim() ? { name: name.trim() } : {}),
           user_request: userRequest,
           source_strategy: { type: strategy, search_queries: [] },
+          search_depth: searchDepth,
           sources,
           combine_sources: combineSources,
-          search_depth: searchDepth,
           refresh_interval: refreshInterval ? Number(refreshInterval) : null,
         }),
       });
@@ -321,7 +328,11 @@ export function Workspace() {
     try {
       const response = await fetch(`/api/jobs/${targetId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: editName.trim(), refresh_interval: editInterval ? Number(editInterval) : null, search_depth: editSearchDepth }),
+        body: JSON.stringify({
+          name: editName.trim(),
+          refresh_interval: editInterval ? Number(editInterval) : null,
+          search_depth: editSearchDepth,
+        }),
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "Could not save API settings.");
@@ -347,19 +358,6 @@ export function Workspace() {
       setMessage("API deleted.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not delete API."); }
     finally { setBusy(false); }
-  }
-  useEffect(() => {
-    if (view !== "home" || prefersReduced || heroRequest) return;
-    const timer = window.setInterval(() => {
-      setIdeaIndex((index) => (index + 1) % demoIdeas.length);
-    }, 2600);
-    return () => window.clearInterval(timer);
-  }, [view, heroRequest, prefersReduced]);
-
-  function forgeFromLanding() {
-    setUserRequest(heroRequest.trim() || demoIdeas[ideaIndex]);
-    setHeroRequest("");
-    setView("new");
   }
 
   async function copyEndpoint(path: string) {
@@ -387,75 +385,101 @@ export function Workspace() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <button className="brand brand-button" onClick={() => { setSelectedId(null); setView("home"); }}><div className="brand-mark">W</div><div><strong>WebForge</strong></div></button>
-        <button className={`nav-item ${view === "home" ? "active" : ""}`} onClick={() => { setSelectedId(null); setView("home"); }}><span className="nav-icon">H</span> Home</button>
+        <Link className="brand brand-button" href="/"><div className="brand-mark">W</div><div><strong>WebForge</strong><span>API workbench</span></div></Link>
+        <div className="sidebar-section-label">Workspace</div>
+        <button className={`nav-item ${view === "dashboard" ? "active" : ""}`} onClick={() => { setSelectedId(null); setView("dashboard"); }}><span className="nav-icon">D</span> Dashboard</button>
         <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => setView("library")}><span className="nav-icon">L</span> Library</button>
         <button className={`nav-item ${view === "new" ? "active" : ""}`} onClick={() => { setSelectedId(null); setView("new"); }}><span className="nav-icon">+</span> New API</button>
         <Link className="nav-item nav-link" href="/cli"><span className="nav-icon">&gt;_</span> CLI Download</Link>
+        <div className="sidebar-section-label datasets-label"><span>{jobs.length}</span>APIs</div>
         <div className="dataset-list">
           {jobs.length ? jobs.map((job) => (
             <button key={job.id} className={`dataset-item ${selectedId === job.id && view === "detail" ? "selected" : ""}`} onClick={() => { setSelectedId(job.id); setView("detail"); setMessage(null); }}>
               <span className="dataset-dot" />
               <span className="dataset-text"><strong>{job.name}</strong><small>{statusLabels[job.status]}</small></span>
             </button>
-          )) : <p className="sidebar-empty">No jobs yet.</p>}
+          )) : <p className="sidebar-empty">No APIs yet. Describe data to forge the first one.</p>}
         </div>
-        <button className="sidebar-bottom settings-link" onClick={() => setSettingsOpen(true)}><span>Settings</span></button>
+        <div className="sidebar-bottom">
+          <Link className="settings-link" href="/">← View site</Link>
+          <button className="settings-link" onClick={() => setSettingsOpen(true)}><span>Settings</span><b>···</b></button>
+        </div>
       </aside>
 
       <main className="main">
-        <header className="topbar"><div className="top-right"><button className="avatar" aria-label="Open settings" onClick={() => setSettingsOpen((open) => !open)}>WF</button></div></header>
+        <header className="topbar"><div className="breadcrumbs">WebForge<span>/</span>{view === "dashboard" ? "Dashboard" : view === "new" ? "New API" : view === "library" ? "Library" : selected?.name || "Detail"}</div><div className="top-right"><span className="version">dashboard</span><Link className="ghost-button" href="/">Site</Link><button className="avatar" aria-label="Open settings" onClick={() => setSettingsOpen((open) => !open)}>WF</button></div></header>
         {message && <div className="toast" role="status"><span>{message}</span><button onClick={() => setMessage(null)} aria-label="Dismiss">x</button></div>}
         {settingsOpen && <div className="settings-menu" role="dialog" aria-label="Settings">
           <strong>Settings</strong>
           <div><span>OpenAI planner</span><b className={config?.planner_ready ? "good" : "bad"}>{config?.planner_ready ? "Connected" : "Needs key"}</b></div>
           <div><span>Firecrawl extraction</span><b className={config?.extraction_ready ? "good" : "bad"}>{config?.extraction_ready ? "Connected" : "Needs key"}</b></div>
+          <div><span>MongoDB Atlas</span><b className={config?.database_ready ? "good" : "bad"}>{config?.database_ready ? "Configured" : "Needs URI"}</b></div>
           {accessRequired && <button className="ghost-button" onClick={() => void lockWorkspace()}>Lock workspace</button>}
           <button className="ghost-button" onClick={() => setSettingsOpen(false)}>Close</button>
         </div>}
 
         <div className="content">
-          {view === "home" ? <>
-            <h1>Point at the web.<br /><em>Get an API.</em></h1>
-            <p className="landing-sub">Type what you want. WebForge plans the fields, reads the pages, and serves live JSON.</p>
-            <section className="demo-composer panel" aria-label="Describe data">
-              <textarea value={heroRequest} onChange={(event) => setHeroRequest(event.target.value)} rows={3} placeholder={demoIdeas[ideaIndex]} aria-label="Describe the data you want" />
-              <div className="demo-composer-footer">
-                <button className="ghost-button" onClick={() => setHeroRequest(demoIdeas[Math.floor(Math.random() * demoIdeas.length)])}>Surprise me</button>
-                <button className="primary-button" onClick={forgeFromLanding}>Forge API</button>
+          {view === "dashboard" && <>
+            <div className="dashboard-hero">
+              <div>
+                <p className="hero-eyebrow"><span className="sparkle" aria-hidden="true" />Dashboard</p>
+                <h1>All your <em>live data,</em> in one ledger.</h1>
+                <p className="hero-copy">Create an API from plain English, watch discovery and extraction run, then call stable JSON. {totals.apis === 0 ? "Start with a quick template below." : `${totals.apis} APIs · ${totals.records.toLocaleString()} records stored.`}</p>
               </div>
-            </section>
-            <div className="chip-row" role="group" aria-label="Demo patterns">
-              {(Object.keys(demoPatterns) as DemoKey[]).map((key) => (
-                <button key={key} className="demo-chip" draggable onDragStart={(event) => event.dataTransfer.setData("text/webforge-pattern", key)} onClick={() => setDemoPattern(key)}>{demoPatterns[key].name}</button>
-              ))}
+              <button className="dashboard-create" onClick={() => { setSelectedId(null); setView("new"); }}>
+                <span aria-hidden="true">+</span>
+                <span><strong>Forge a new API</strong><small>Describe data → pick fields → get JSON</small></span>
+              </button>
             </div>
-            <section className={"dropzone panel" + (dragOver ? " over" : "")} onDragOver={(event) => { event.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={(event) => { event.preventDefault(); const key = event.dataTransfer.getData("text/webforge-pattern"); if (key === "prices" || key === "events" || key === "menus") setDemoPattern(key); setDragOver(false); }} aria-label="Live demo dashboard" aria-live="polite">
-              {demoPattern ? (
-                <div className="demo-live" key={demoPattern}>
-                  <div className="demo-filled-head"><strong>{demoPatterns[demoPattern].name}</strong><button className="text-button" onClick={() => setDemoPattern(null)}>Clear</button></div>
-                  <div className="demo-stats">{demoPatterns[demoPattern].stats.map(([label, value]) => <div className="demo-stat" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
-                  <div className="table-wrap"><table><thead><tr>{demoPatterns[demoPattern].head.map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{demoPatterns[demoPattern].rows.map((row) => <tr key={row.join("|")}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div>
+
+            <section className="dashboard-stats" aria-label="Workspace totals">
+              <div className="stat-card"><span>APIs</span><strong>{totals.apis}</strong><small>{totals.ready} ready</small></div>
+              <div className="stat-card"><span>Records stored</span><strong>{totals.records.toLocaleString()}</strong><small>Across all APIs</small></div>
+              <div className="stat-card"><span>Runs active</span><strong>{totals.active}</strong><small>{totals.active > 0 ? "Updating now" : "Idle"}</small></div>
+            </section>
+
+            <div className="dashboard-grid">
+              <section className="dashboard-panel panel" aria-label="Recent APIs">
+                <div className="dashboard-heading"><div><p className="section-kicker">Recent</p><h2>Latest APIs</h2></div><button className="text-button" onClick={() => setView("library")}>View library</button></div>
+                {recentJobs.length ? (
+                  <div className="activity-list">
+                    {recentJobs.map((job) => (
+                      <button key={job.id} className="activity-item" onClick={() => { setSelectedId(job.id); setView("detail"); setMessage(null); }}>
+                        <span className={`activity-dot ${job.status === "ready" ? "ready" : job.status === "failed" ? "failed" : "queued"}`} />
+                        <span><strong>{job.name}</strong><small>{statusLabels[job.status]} · {job.record_count} records</small></span>
+                        <time>{new Date(job.updated_at).toLocaleDateString()}</time>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="dashboard-empty"><strong>No APIs yet</strong><p>Describe the public web data you want and WebForge will plan fields, extract records, and serve JSON.</p><button className="primary-button" onClick={() => setView("new")}>Forge your first API</button></div>
+                )}
+              </section>
+
+              <section className="dashboard-panel panel" aria-label="Quick start">
+                <div className="dashboard-heading"><div><p className="section-kicker">Quick start</p><h2>Start from a pattern</h2></div></div>
+                <div className="template-list">
+                  {quickStarts.map((item) => (
+                    <button key={item.label} onClick={() => startQuickStart(item.request)}>
+                      <span>{item.label.slice(0, 2).toUpperCase()}</span>
+                      <span><strong>{item.label}</strong><small>{item.request}</small></span>
+                      <b aria-hidden="true">→</b>
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <p className="drop-empty">Drag a pattern here, or tap one. The dashboard fills itself.</p>
-              )}
-            </section>
-            <section className="how-row panel" aria-label="How it works">
-              <div className="how-step"><span className="step-number">1</span><p>Describe the data in plain words.</p></div>
-              <div className="how-step"><span className="step-number">2</span><p>WebForge finds sources and extracts records.</p></div>
-              <div className="how-step"><span className="step-number">3</span><p>Call your JSON. Set a refresh, or don&apos;t.</p></div>
-            </section>
-          </> : view === "new" ? <><h1>Describe the data.<br /><em>Get a live API.</em></h1></> : null}
+              </section>
+            </div>
+          </>}
+
           {view === "library" && <section className="library-panel panel">
-            <div className="section-header"><div><h2>Library</h2></div><button className="primary-button" onClick={() => { setSelectedId(null); setView("new"); }}>New API</button></div>
-            {jobs.length ? <div className="library-list">{jobs.map((job) => <button key={job.id} className="library-item" onClick={() => { setSelectedId(job.id); setView("detail"); }}><span className={`library-status ${job.status}`} /><div><strong>{job.name}</strong><small>{statusLabels[job.status]}, {Object.keys(job.schema).length || Object.keys(job.proposed_schema).length} fields</small></div><time>{new Date(job.updated_at).toLocaleDateString()}</time></button>)}</div> : <div className="empty-state"><strong>No APIs yet</strong><button className="primary-button" onClick={() => setView("new")}>New API</button></div>}
+            <div className="section-header"><div><p className="section-kicker">Collection</p><h2>Library</h2><p>Every API you have forged, with status and field counts.</p></div><button className="primary-button" onClick={() => { setSelectedId(null); setView("new"); }}>New API</button></div>
+            {jobs.length ? <div className="library-list">{jobs.map((job) => <button key={job.id} className="library-item" onClick={() => { setSelectedId(job.id); setView("detail"); }}><span className={`library-status ${job.status}`} /><span><strong>{job.name}</strong><small>{statusLabels[job.status]}, {Object.keys(job.schema).length || Object.keys(job.proposed_schema).length} fields · {job.record_count} records</small></span><time>{new Date(job.updated_at).toLocaleDateString()}</time></button>)}</div> : <div className="empty-state"><strong>No APIs yet</strong><p>Forge one from the dashboard to see it here.</p><button className="primary-button" onClick={() => setView("new")}>New API</button></div>}
           </section>}
 
           {view === "new" && <section className="composer panel">
-            <div className="panel-heading"><span className="step-number">01</span><div><h2>New API</h2></div></div>
-            <label className="input-label" htmlFor="job-name">Name</label>
-            <input id="job-name" className="text-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Optional" />
+            <div className="panel-heading"><span className="step-number">01</span><div><p className="section-kicker">Create</p><h2>New API</h2><p>Describe the data. WebForge proposes fields before any extraction runs.</p></div></div>
+            <label className="input-label" htmlFor="job-name">Name<span>Optional</span></label>
+            <input id="job-name" className="text-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Espresso prices" />
             <label className="input-label request-label" htmlFor="request">Request</label>
             <textarea id="request" value={userRequest} onChange={(event) => setUserRequest(event.target.value)} rows={4} placeholder="What public web data should this hold..." />
 
@@ -464,32 +488,48 @@ export function Workspace() {
                 <button type="button" className={strategy === "automatic" ? "mode active" : "mode"} onClick={() => setStrategy("automatic")}>Automatic</button>
                 <button type="button" className={strategy === "provided_urls" ? "mode active" : "mode"} onClick={() => setStrategy("provided_urls")}>URLs</button>
               </div>
+              <p className="mode-hint">{strategy === "automatic" ? "WebForge searches the public web for matching pages." : "You supply up to five public page URLs, one per line."}</p>
             </div>
 
             {strategy === "automatic" && <div className="depth-block">
-              <label className="input-label">Search depth <span>Loose record target</span></label>
+              <label className="input-label">Search depth<span>Controls credit use and approximate result count</span></label>
               <div className="depth-options" role="radiogroup" aria-label="Search depth">
-                {searchDepthOptions.map((option) => <button type="button" role="radio" aria-checked={searchDepth === option.value}
-                  className={searchDepth === option.value ? "depth-option active" : "depth-option"} key={option.value}
-                  onClick={() => setSearchDepth(option.value)}>
-                  <strong>{option.label}</strong><span>{combineSources ? option.combinedRange : option.range}</span><small>{option.hint}</small>
+                {searchDepthOptions.map((option) => <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={searchDepth === option.value}
+                  className={searchDepth === option.value ? "depth-option active" : "depth-option"}
+                  onClick={() => setSearchDepth(option.value)}
+                >
+                  <strong>{option.label}</strong>
+                  <span>{combineSources ? option.combinedRange : option.range}</span>
+                  <small>{option.hint}</small>
                 </button>)}
               </div>
-              <p className="mode-hint">This is a ceiling, not a guarantee. WebForge stops earlier when it has enough data or sources fail.</p>
             </div>}
 
             {strategy === "provided_urls" && <div className="seed-block"><label className="input-label" htmlFor="sources">Sources</label><textarea id="sources" rows={3} value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="One public URL per line" /></div>}
             <label className="field-option"><input type="checkbox" checked={combineSources} onChange={(event) => setCombineSources(event.target.checked)} /><span><strong>Combine sources into one record</strong><small>Use multiple pages for one item, such as Apple specs and an independent benchmark.</small></span></label>
-            <div className="interval-row"><label className="input-label" htmlFor="interval">Refresh</label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
-            <div className="composer-footer"><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready}>{busy ? "Planning..." : "Propose fields"}</button></div>
+            <div className="interval-row"><label className="input-label" htmlFor="interval">Refresh<span>Minutes, or blank for manual</span></label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
+            <div className="example-row"><span>Try:</span>{quickStarts.map((item) => <button key={item.label} type="button" onClick={() => setUserRequest(item.request)}>{item.label}</button>)}</div>
+            <div className="composer-footer"><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready || !config?.database_ready}>{busy ? "Planning..." : "Propose fields"}</button>
+              <span>{userRequest.trim().length}/10 chars minimum{!config ? " · Checking service settings..." : !config.database_ready ? " · Add MONGODB_URI to the server and restart WebForge." : !config.planner_ready ? " · Add OPENAI_API_KEY to the server and restart WebForge." : ""}</span></div>
           </section>}
 
           {view === "detail" && selected && <>
-            <section className="overview-grid">
-              <div className="metric panel"><span>Job</span><strong>{selected.name}</strong></div>
-              <div className="metric panel"><span>Status</span><strong className={`metric-status ${selected.status}`}>{statusLabels[selected.status]}</strong></div>
-              <div className="metric panel"><span>Fields</span><strong>{Object.keys(selected.status === "awaiting_fields" ? selected.proposed_schema : selected.schema).length}</strong></div>
-              <div className="metric panel"><span>Refresh</span><strong>{selected.refresh_paused ? "Paused" : selected.refresh_interval ? `${selected.refresh_interval}m` : "Manual"}</strong>{selected.refresh_paused && <small>Paused. Save settings to resume.</small>}</div>
+            <section className="detail-hero panel">
+              <div className="detail-hero-top"><p className="section-kicker">API</p><strong className={`metric-status ${selected.status}`}>{statusLabels[selected.status]}</strong></div>
+              <h2>{selected.name}</h2>
+              <figure className="prompt-quote"><figcaption>Prompt</figcaption><blockquote>“{selected.user_request}”</blockquote></figure>
+              <div className="detail-meta">
+                <span>{selected.source_strategy.type === "automatic" ? "Automatic discovery" : "Provided URLs"}</span>
+                <span>{Object.keys(selected.status === "awaiting_fields" ? selected.proposed_schema : selected.schema).length} fields</span>
+                <span>{selected.record_count} records</span>
+                {selected.source_strategy.type === "automatic" && <span>{selected.search_depth} search</span>}
+                <span>{selected.refresh_paused ? "Refresh paused" : selected.refresh_interval ? `Refreshes every ${selected.refresh_interval}m` : "Manual refresh"}</span>
+                {selected.combine_sources && <span>Combined record</span>}
+              </div>
             </section>
 
             {selected.run_summary && <div className="run-summary panel" aria-label="Latest run summary">
@@ -503,12 +543,14 @@ export function Workspace() {
             </div>}
 
             {["queued", "discovering", "scraping", "extracting", "storing"].includes(selected.status) &&
-              <div className="run-summary panel"><span>Running</span><button className="ghost-button" onClick={() => void cancelRun()} disabled={Boolean(selected.run_summary?.cancel_requested)}>{selected.run_summary?.cancel_requested ? "Cancelling" : "Cancel"}</button></div>}
+              <div className="run-summary panel"><span>Running{selected.run_summary?.cancel_requested ? " — cancellation requested" : ""}</span><button className="ghost-button" onClick={() => void cancelRun()} disabled={Boolean(selected.run_summary?.cancel_requested)}>{selected.run_summary?.cancel_requested ? "Cancelling" : "Cancel"}</button></div>}
 
             {selected.error && <div className="error-banner job-error">{selected.error}</div>}
 
             {selected.status === "awaiting_fields" && <section className="field-review panel">
-              <h2>Fields</h2>
+              <p className="section-kicker">Review</p>
+              <h2>Choose fields</h2>
+              <p>Confirm what belongs in the JSON. Extraction starts only after you build.</p>
               {selected.combine_sources && <p className="empty-records">These fields will be combined into one record from multiple pages about the same item.</p>}
               <div className="field-options">
                 {Object.entries(selected.proposed_schema).filter(([key]) => key !== "source_url").map(([key, field]) => (
@@ -535,25 +577,43 @@ export function Workspace() {
 
             {selected.status !== "awaiting_fields" && <>
             <section className="records-section panel">
-              <div className="section-header"><div><h2>Schema</h2></div></div>
+              <div className="section-header"><div><p className="section-kicker">Contract</p><h2>Schema</h2></div></div>
               {selected.combine_sources && <p className="empty-records">One record combines fields from multiple URLs. Each populated field links to its source in the records API.</p>}
               <div className="table-wrap"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>{Object.entries(selected.schema).map(([key, field]) => <tr key={key}><td><code>{key}</code></td><td><span className="status-pill sample">{field.type}</span></td><td>{field.description || "-"}</td></tr>)}</tbody></table></div>
             </section>
 
             <section className="records-section panel">
-              <div className="section-header"><div><h2>Records</h2></div><button className="ghost-button" onClick={() => void refreshJob()} disabled={busy || !config?.extraction_ready || ["queued", "discovering", "scraping", "extracting", "storing"].includes(selected.status)}>{busy ? "Queuing..." : selected.status === "planned" ? "Run now" : "Refresh now"}</button></div>
-              {records.length ? <div className="table-wrap"><table><thead><tr>{Object.keys(selected.schema).map((key) => <th key={key}>{key}</th>)}{selected.combine_sources && <th>Sources</th>}<th>Extracted</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}>{Object.keys(selected.schema).map((key) => <td key={key} title={record.field_sources?.[key] || undefined}>{key === "source_url" ? <a href={record.source_url} target="_blank" rel="noreferrer">Source</a> : record.data[key] === null || record.data[key] === undefined ? "null" : String(record.data[key])}</td>)}{selected.combine_sources && <td>{(record.source_urls || [record.source_url]).map((url, index) => <span key={url}><a href={url} target="_blank" rel="noreferrer">{index + 1}</a>{index + 1 < (record.source_urls || [record.source_url]).length ? ", " : ""}</span>)}</td>}<td>{new Date(record.extracted_at).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="empty-records">No records yet.</p>}
+              <div className="section-header"><div><p className="section-kicker">Data</p><h2>Records</h2><p>{records.length ? `${records.length} row${records.length === 1 ? "" : "s"} · one row per record` : "No rows yet — run the API to fill this table."}</p></div><button className="ghost-button" onClick={() => void refreshJob()} disabled={busy || !config?.extraction_ready || ["queued", "discovering", "scraping", "extracting", "storing"].includes(selected.status)}>{busy ? "Queuing..." : selected.status === "planned" ? "Run now" : "Refresh now"}</button></div>
+              {records.length ? <div className="table-wrap"><table className="records-table"><thead><tr><th className="row-num">#</th>{Object.keys(selected.schema).map((key) => <th key={key}>{key}</th>)}{selected.combine_sources && <th>Sources</th>}<th>Extracted</th></tr></thead><tbody>{records.map((record, rowIndex) => <tr key={record.id}><td className="row-num">{rowIndex + 1}</td>{Object.keys(selected.schema).map((key) => {
+                const value = record.data[key];
+                if (key === "source_url") return <td key={key}>{value ? <a href={String(value)} target="_blank" rel="noreferrer">Source ↗</a> : <span className="null-cell">null</span>}</td>;
+                if (value === null || value === undefined || value === "") return <td key={key}><span className="null-cell">null</span></td>;
+                return <td key={key} title={record.field_sources?.[key] ? `From ${record.field_sources[key]}` : String(value)}>{String(value)}</td>;
+              })}{selected.combine_sources && <td>{(record.source_urls || [record.source_url]).map((url, index) => <span key={url}><a href={url} target="_blank" rel="noreferrer">{index + 1}</a>{index + 1 < (record.source_urls || [record.source_url]).length ? ", " : ""}</span>)}</td>}<td className="extracted-cell">{new Date(record.extracted_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <p className="empty-records">No records yet.</p>}
             </section>
 
-            <section className="records-section panel"><div className="section-header"><div><h2>Runs</h2></div></div>
+            <section className="records-section panel"><div className="section-header"><div><p className="section-kicker">Provenance</p><h2>Runs</h2></div></div>
               {selected.sources.length > 0 && <ul className="source-list">{selected.sources.map((source) => <li key={source}><a href={source} target="_blank" rel="noreferrer">{source}</a></li>)}</ul>}
               {runs.length ? <div className="table-wrap"><table><thead><tr><th>Started</th><th>Trigger</th><th>Outcome</th><th>Saved</th><th>Searches, scrapes</th><th>Details</th></tr></thead><tbody>{runs.map((run) => <tr key={run.id}><td>{new Date(run.startedAt).toLocaleString()}</td><td>{run.trigger}</td><td>{run.outcome}</td><td>{run.savedRecords}</td><td>{run.searchCalls}, {run.scrapeCalls}</td><td>{run.stopReason || "—"}</td></tr>)}</tbody></table></div> : <p className="empty-records">No runs yet.</p>}
             </section>
 
-            <section className="api-section panel"><div><h2>Endpoints</h2></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{recordsPath}</code><button onClick={() => void copyEndpoint(recordsPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy</button></div></div></section>
+            <section className="api-section panel"><div><p className="section-kicker">Integrate</p><h2>Endpoints</h2><p>Stable JSON for your app. Records update on refresh.</p></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{recordsPath}</code><button onClick={() => void copyEndpoint(recordsPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy</button></div></div></section>
             </>}
-            <section className="api-settings panel"><div><h2>Settings</h2></div><button className="ghost-button" onClick={openApiSettings}>Open</button></section>
-            {apiSettingsOpen && apiSettingsJobId === selected.id && <section className="api-settings-editor panel" role="dialog" aria-modal="true" aria-label="API settings"><div className="settings-editor-heading"><div><h2>{selected.name}</h2></div><button onClick={() => setApiSettingsOpen(false)} aria-label="Close API settings">x</button></div><label className="input-label" htmlFor="api-name">API name</label><input id="api-name" className="text-input" value={editName} onChange={(event) => setEditName(event.target.value)} />{selected.source_strategy.type === "automatic" && <><label className="input-label settings-interval-label" htmlFor="api-search-depth">Search depth</label><select id="api-search-depth" className="text-input" value={editSearchDepth} onChange={(event) => setEditSearchDepth(event.target.value as SearchDepth)}>{searchDepthOptions.map((option) => <option value={option.value} key={option.value}>{option.label} — {selected.combine_sources ? option.combinedRange : option.range}</option>)}</select></>}<label className="input-label settings-interval-label" htmlFor="api-interval">Refresh</label><input id="api-interval" className="text-input interval-input" type="number" min="15" value={editInterval} onChange={(event) => setEditInterval(event.target.value)} placeholder="Manual" /><div className="settings-editor-actions"><button className="primary-button" onClick={() => void saveApiSettings()} disabled={busy || editName.trim().length < 3}>Save changes</button><button className={`danger-button ${deleteArmed ? "armed" : ""}`} onClick={() => deleteArmed ? void removeApi() : setDeleteArmed(true)} disabled={busy}>{deleteArmed ? "Confirm delete" : "Delete"}</button></div></section>}          </>}
+            <section className="api-settings panel"><div><h2>Settings</h2><p>Rename, change refresh, or delete this API.</p></div><button className="ghost-button" onClick={openApiSettings}>Open</button></section>
+            {apiSettingsOpen && apiSettingsJobId === selected.id && <section className="api-settings-editor panel" role="dialog" aria-modal="true" aria-label="API settings">
+              <div className="settings-editor-heading"><div><p className="section-kicker">Edit</p><h2>{selected.name}</h2></div><button onClick={() => setApiSettingsOpen(false)} aria-label="Close API settings">x</button></div>
+              <label className="input-label" htmlFor="api-name">API name</label>
+              <input id="api-name" className="text-input" value={editName} onChange={(event) => setEditName(event.target.value)} />
+              {selected.source_strategy.type === "automatic" && <>
+                <label className="input-label settings-interval-label" htmlFor="api-search-depth">Search depth<span>Applies to future runs</span></label>
+                <select id="api-search-depth" className="text-input" value={editSearchDepth} onChange={(event) => setEditSearchDepth(event.target.value as SearchDepth)}>
+                  {searchDepthOptions.map((option) => <option key={option.value} value={option.value}>{option.label} — {option.hint}</option>)}
+                </select>
+              </>}
+              <label className="input-label settings-interval-label" htmlFor="api-interval">Refresh<span>Minutes, or blank for manual</span></label>
+              <input id="api-interval" className="text-input interval-input" type="number" min="15" value={editInterval} onChange={(event) => setEditInterval(event.target.value)} placeholder="Manual" />
+              <div className="settings-editor-actions"><button className="primary-button" onClick={() => void saveApiSettings()} disabled={busy || editName.trim().length < 3}>Save changes</button><button className={`danger-button ${deleteArmed ? "armed" : ""}`} onClick={() => deleteArmed ? void removeApi() : setDeleteArmed(true)} disabled={busy}>{deleteArmed ? "Confirm delete" : "Delete"}</button></div>
+            </section>}          </>}
         </div>
       </main>
     </div>
