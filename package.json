@@ -8,11 +8,14 @@
     "build": "next build",
     "start": "next start",
     "worker": "node --env-file-if-exists=.env.local scripts/worker.mjs",
+    "db:check": "node --env-file-if-exists=.env.local scripts/check-mongodb.mjs",
+    "test:db": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test tests/pipeline-integration.test.ts",
     "lint": "eslint .",
     "test": "node --conditions=react-server --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "firecrawl": "^4.40.0",
+    "mongodb": "^7.6.0",
     "next": "16.3.5",
     "openai": "^7.19.0",
     "react": "19.3.0",

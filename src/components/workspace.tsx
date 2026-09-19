@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiJobResponse, SourceStrategyType } from "@/lib/types";
 
-type Config = { planner_ready: boolean; extraction_ready: boolean; missing: string[] };
+type Config = { planner_ready: boolean; extraction_ready: boolean; database_ready: boolean; missing: string[] };
 type ApiRecordResponse = { id: string; job_id: string; source_url: string; source_urls: string[];
   field_sources: Record<string, string>; data: Record<string, string | number | boolean | null>; extracted_at: string };
 type RunHistory = { id: string; startedAt: string; finishedAt: string | null; trigger: "manual" | "scheduled"; outcome: string; savedRecords: number; searchCalls: number; scrapeCalls: number; stopReason: string | null; cancelRequested: boolean };
@@ -108,7 +108,7 @@ export function Workspace() {
 
   const loadJobs = useCallback(async (preferredId?: string) => {
     const response = await fetch("/api/jobs", { cache: "no-store" });
-    if (!response.ok) throw new Error("Could not load API jobs.");
+    if (!response.ok) throw new Error("Could not load API jobs. Check MongoDB with npm run db:check.");
     const result = await response.json() as { jobs: ApiJobResponse[] };
     setJobs(result.jobs);
     setSelectedId((current) => {
@@ -154,15 +154,28 @@ export function Workspace() {
     if (accessState !== "unlocked") return;
     void fetch("/api/jobs", { cache: "no-store" })
       .then((response) => {
-        if (!response.ok) throw new Error("Could not load API jobs.");
+        if (!response.ok) throw new Error("Could not load API jobs. Check MongoDB with npm run db:check.");
         return response.json() as Promise<{ jobs: ApiJobResponse[] }>;
       })
       .then((result) => { setJobs(result.jobs); setSelectedId(result.jobs[0]?.id || null); })
       .catch((error: Error) => setMessage(error.message));
-    void fetch("/api/config")
-      .then((response) => response.json())
-      .then((result: Config) => setConfig(result))
-      .catch(() => setMessage("Could not load configuration."));
+    const refreshConfig = () => {
+      void fetch("/api/config", { cache: "no-store" })
+        .then((response) => {
+          if (!response.ok) throw new Error("Could not load configuration.");
+          return response.json() as Promise<Config>;
+        })
+        .then(setConfig)
+        .catch(() => setMessage("Could not load configuration."));
+    };
+    const onVisibilityChange = () => { if (document.visibilityState === "visible") refreshConfig(); };
+    refreshConfig();
+    window.addEventListener("focus", refreshConfig);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", refreshConfig);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [accessState, loadJobs]);
 
   // Clear ?request= from the marketing homepage hero after picking it up above.
@@ -379,6 +392,7 @@ export function Workspace() {
           <strong>Settings</strong>
           <div><span>OpenAI planner</span><b className={config?.planner_ready ? "good" : "bad"}>{config?.planner_ready ? "Connected" : "Needs key"}</b></div>
           <div><span>Firecrawl extraction</span><b className={config?.extraction_ready ? "good" : "bad"}>{config?.extraction_ready ? "Connected" : "Needs key"}</b></div>
+          <div><span>MongoDB Atlas</span><b className={config?.database_ready ? "good" : "bad"}>{config?.database_ready ? "Configured" : "Needs URI"}</b></div>
           {accessRequired && <button className="ghost-button" onClick={() => void lockWorkspace()}>Lock workspace</button>}
           <button className="ghost-button" onClick={() => setSettingsOpen(false)}>Close</button>
         </div>}
@@ -460,7 +474,8 @@ export function Workspace() {
             <label className="field-option"><input type="checkbox" checked={combineSources} onChange={(event) => setCombineSources(event.target.checked)} /><span><strong>Combine sources into one record</strong><small>Use multiple pages for one item, such as Apple specs and an independent benchmark.</small></span></label>
             <div className="interval-row"><label className="input-label" htmlFor="interval">Refresh<span>Minutes, or blank for manual</span></label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
             <div className="example-row"><span>Try:</span>{quickStarts.map((item) => <button key={item.label} type="button" onClick={() => setUserRequest(item.request)}>{item.label}</button>)}</div>
-            <div className="composer-footer"><span>{userRequest.trim().length}/10 chars minimum</span><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready}>{busy ? "Planning..." : "Propose fields"}</button></div>
+            <div className="composer-footer"><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready || !config?.database_ready}>{busy ? "Planning..." : "Propose fields"}</button>
+              <span>{userRequest.trim().length}/10 chars minimum{!config ? " · Checking service settings..." : !config.database_ready ? " · Add MONGODB_URI to the server and restart WebForge." : !config.planner_ready ? " · Add OPENAI_API_KEY to the server and restart WebForge." : ""}</span></div>
           </section>}
 
           {view === "detail" && selected && <>

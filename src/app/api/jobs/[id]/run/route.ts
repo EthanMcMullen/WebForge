@@ -9,9 +9,9 @@ export async function POST(_request: Request, context: RouteContext<"/api/jobs/[
   const denied = accessFailure(_request);
   if (denied) return denied;
   const { id } = await context.params;
-  if (!getApiJob(id)) return NextResponse.json({ error: "API job not found." }, { status: 404 });
+  if (!await getApiJob(id)) return NextResponse.json({ error: "API job not found." }, { status: 404 });
   try {
-    const job = enqueueApiRun(id);
+    const job = await enqueueApiRun(id);
     return NextResponse.json({ job: toApiJobResponse(job) }, { status: 202 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not run API job." }, { status: 409 });
