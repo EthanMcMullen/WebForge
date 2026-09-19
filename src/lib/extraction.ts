@@ -1,7 +1,9 @@
 import { cleanSourceUrls } from "./validation.ts";
 import type { ApiRecordData, ApiRecordSchema } from "./types";
 
-export function extractionJsonSchema(schema: ApiRecordSchema): Record<string, unknown> {
+export function extractionJsonSchema(schema: ApiRecordSchema): {
+  type: "object"; properties: Record<string, unknown>; required: string[]; additionalProperties: false;
+} {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
   for (const [key, field] of Object.entries(schema)) {

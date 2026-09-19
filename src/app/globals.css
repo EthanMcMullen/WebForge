@@ -40,3 +40,5 @@
 .access-screen{min-height:100vh;display:grid;place-items:center;padding:2rem;background:#101318}.access-card{width:min(100%,480px);padding:2rem;display:grid;gap:1rem}.access-card h1{margin:0}.access-card form{display:grid;gap:1rem}.access-card p{color:#aeb8be;margin:0}
 
 .metric-status.partial{color:#e7bc72}.activity-dot.partial{background:#e7bc72}.library-status.partial{background:#e7bc72}
+.metric-status.queued{color:#e7bc72}.activity-dot.queued{background:#e7bc72}.library-status.queued{background:#e7bc72}
+.source-list{margin:0 28px 18px;padding-left:20px;font-size:11px}.source-list li{margin:6px 0;overflow-wrap:anywhere}.source-list a{color:#bdaaff}

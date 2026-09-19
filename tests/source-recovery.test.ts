@@ -70,6 +70,7 @@ test("Firecrawl errors are normalized without forwarding provider text", () => {
   assert.equal(classifySourceError(Object.assign(new Error("Source returned HTTP 401."), { status: 401 })), "ACCESS_BLOCKED");
   assert.equal(classifySourceError(Object.assign(new Error("No credits"), { status: 429 })), "RATE_LIMITED");
   assert.equal(classifySourceError(Object.assign(new Error("Payment required"), { status: 402 })), "CONFIG_OR_BILLING");
+  assert.equal(classifySourceError(new Error("FIRECRAWL_API_KEY is required to run an API job.")), "CONFIG_OR_BILLING");
 });
 
 test("all-null extraction cannot become a stored record", () => {

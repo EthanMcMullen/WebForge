@@ -11,15 +11,21 @@ npm install
 Copy-Item .env.example .env.local
 ```
 
-Set `OPENAI_API_KEY` and `FIRECRAWL_API_KEY` in `.env.local`. For shared access or deployment, also set `WEBFORGE_ACCESS_TOKEN` to a long random value. Then run:
+Set `OPENAI_API_KEY`, `FIRECRAWL_API_KEY`, and a long random `WEBFORGE_WORKER_TOKEN` in `.env.local`. For shared access or deployment, also set `WEBFORGE_ACCESS_TOKEN` to a different long random value. Start the web server and worker in separate terminals:
 
 ```powershell
 npm run dev
 ```
 
+In another terminal:
+
+```powershell
+npm run worker
+```
+
 Open [http://localhost:3000](http://localhost:3000). Enter a request such as “Create an API with the title, author, and publication date of recent articles about battery recycling.” Choose automatic discovery or supply up to five public page URLs. Click **Propose fields**, choose the fields you want in the JSON API, then click **Confirm fields and build API**. Firecrawl runs only after confirmation.
 
-`OPENAI_MODEL` defaults to `gpt-4.1-mini`. `WEBFORGE_DB_PATH` defaults to `.data/webforge.sqlite` under the project directory. The `.env.local` file and database are ignored by Git.
+`OPENAI_MODEL` defaults to `gpt-4.1-mini`. `WEBFORGE_DB_PATH` defaults to `.data/webforge.sqlite` under the project directory. The `.env.local` file and database are ignored by Git. The worker polls every five seconds, executes queued runs, and schedules due refreshes. Keep it running alongside the web server. `WEBFORGE_BASE_URL` can point the worker to a nondefault server address.
 
 ## Access
 
@@ -35,8 +41,10 @@ Local development runs without an access token unless you configure one. Product
 | PATCH | `/api/jobs/:id/fields` | Confirms selected fields before extraction |
 | GET | `/api/jobs/:id` | Returns job status and confirmed schema |
 | GET | `/api/jobs/:id/schema` | Returns the record schema |
-| POST | `/api/jobs/:id/run` | Discovers and extracts records |
-| POST | `/api/jobs/:id/refresh` | Runs extraction again |
+| POST | `/api/jobs/:id/run` | Queues discovery and extraction; returns 202 |
+| POST | `/api/jobs/:id/refresh` | Queues another run; returns 202 |
+| POST | `/api/jobs/:id/cancel` | Requests cancellation of the active run |
+| GET | `/api/jobs/:id/runs` | Returns full run history |
 | GET | `/api/jobs/:id/records` | Returns saved records without calling a model or Firecrawl |
 
 Example creation request:
@@ -53,6 +61,7 @@ $fields = @($job.job.proposed_schema.PSObject.Properties.Name | Where-Object { $
 $selection = @{ selected_fields = $fields } | ConvertTo-Json
 Invoke-RestMethod -Method Patch -Uri "http://localhost:3000/api/jobs/$($job.job.id)/fields" -ContentType application/json -Body $selection
 Invoke-RestMethod -Method Post -Uri "http://localhost:3000/api/jobs/$($job.job.id)/run"
+# Poll the job until its status is ready, partial, or failed, then read records.
 Invoke-RestMethod -Uri "http://localhost:3000/api/jobs/$($job.job.id)/records"
 ```
 
@@ -66,22 +75,22 @@ A records response has `job_id`, `status`, `count`, and `records`. Each record i
 2. OpenAI Responses proposes a schema and search queries. The draft is saved with status `awaiting_fields`; no Firecrawl call is made.
 3. The user selects at least one proposed data field. `source_url` is always included. `PATCH /api/jobs/:id/fields` saves the confirmed schema.
 4. Firecrawl Search discovers public candidate pages for automatic jobs and excludes known unsupported domains. Provided URL jobs skip search and never switch to other sources.
-5. Firecrawl Scrape's JSON format extracts a record using only the confirmed field schema.
-6. WebForge checks the returned JSON shape, rejects empty or very sparse records, and saves each successful record immediately in SQLite.
-7. `GET /api/jobs/:id/records` serves the stored JSON.
+5. A separate worker claims the queued run. Firecrawl Scrape extracts the confirmed fields plus an internal identity field that is not served through the public API.
+6. WebForge checks the JSON shape, rejects empty or sparse records, and reviews each extracted record against the original request and planned subject before saving it in SQLite.
+7. `GET /api/jobs/:id/records` serves the stored JSON. The UI and `/runs` endpoint show progress and history.
 
-`awaiting_fields` means OpenAI has proposed fields and the user must confirm a selection. `planned` means a confirmed schema exists but extraction has not finished. `ready` means at least one record was saved. Other statuses show discovery, scraping, extraction, storage, or failure. A partial failure sets the job to `partial` and the latest run to `partial_stopped`; saved records stay available. The latest run summary shows search, scrape, recovery, and skipped-source counts.
+`awaiting_fields` means OpenAI has proposed fields and the user must confirm a selection. `planned` means a confirmed schema exists but extraction has not finished. `queued` means the worker has not claimed the run yet. `ready` means at least one record was saved. Other statuses show discovery, scraping, extraction, storage, or failure. A partial failure sets the job to `partial` and the latest run to `partial_stopped`; saved records stay available. The latest run summary shows search, scrape, recovery, and skipped-source counts.
 
 ## Current scope
 
 - One source page produces one record. Broad list pages may not yield every item on the page.
 - Each run allows at most five planned Firecrawl searches plus one recovery search, five structured scrapes, one OpenAI recovery decision, five source failures, and four minutes. Search candidates are reviewed by OpenAI before scraping. Each planned search gets its best page considered before fallback pages, and incomplete subjects are reported as partial results. These are per-run limits; there is no daily credit cap. Check your Firecrawl dashboard for actual credits used.
 - Known unsupported social domains are skipped before scraping. Firecrawl errors are classified, and an automatic job can ask OpenAI for one alternate search query when candidate pages run out. Provided URL jobs do not switch sources. Source review and numeric-price evidence checks reduce mismatches, but other extracted fields are not independently fact checked.
-- Refresh is manual. `refresh_interval` is stored for later scheduling but does not trigger automatic runs.
+- A configured `refresh_interval` schedules refreshes while the worker runs. Refreshes reuse the confirmed schema and source strategy. A job pauses scheduled refreshes after two failed scheduled runs; saving its settings resumes the schedule. Run history and the paused state appear in the UI.
 - Fields visible only in product images, OCR, login-only pages, and private pages are outside this version.
-- Automatic discovery checks whether search results match the request before scraping. For numeric prices, extraction also checks that the price appears next to the matching item in the page text. If a product page lacks its own price but a linked category card shows it, one bounded category-page fallback may supply the record.
+- Automatic discovery checks whether search results match the request before scraping. Extracted records get a separate relevance check. If discovery finds no usable pages and detects a likely source-name typo, WebForge suggests the correction without changing the original request. For numeric prices, extraction also checks that the price appears next to the matching item in the page text. If a product page lacks its own price but a linked category card shows it, one bounded category-page fallback may supply the record.
 - The extraction provider is behind `ExtractionProvider` in `src/lib/providers/firecrawl.ts`, so a later local Qwen provider can return the same record shape.
-- A shared token protects the API when configured; individual user accounts and a hosted background worker are not implemented.
+- A shared token protects the API when configured; individual user accounts are not implemented. The worker needs a long-lived Node.js server and a writable SQLite volume. Queued runs remain in SQLite across restarts; an interrupted run is retried after its lease expires, and already saved records remain available.
 
 ## Verify
 

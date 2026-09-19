@@ -1,13 +1,13 @@
 # To Fix or Implement — teammate handoff
 
-Last reviewed: September 19, 2026. Status reflects the code through commit `ed40815`. Checked boxes mean the named behavior exists and has been verified; unchecked boxes are still work to do. A section marked **PARTIAL** contains both.
+Last reviewed: September 19, 2026. Status reflects the current working tree. Checked boxes mean the named behavior exists and has been verified; unchecked boxes are still work to do. A section marked **PARTIAL** contains both.
 
 ## Current working path
 
 - Plain-English request -> OpenAI plan -> user chooses fields -> Firecrawl search and structured extraction -> SQLite records -> JSON endpoints.
 - Automatic discovery now runs up to five distinct planned searches, gives each subject a source attempt before fallback pages, and labels missing subjects **Partial data**. One optional recovery search remains bounded. Per run: at most six searches total, five scrapes, one recovery decision, five source failures, and four minutes. These are ceilings, not expected usage.
-- The existing MDN JavaScript/HTML/CSS API has three records. Live isolated tests confirmed both three-of-three **Ready** and one-missing **Partial data** outcomes. `npm test` (26 tests), lint, and build passed.
-- `refresh_interval` is stored but does not schedule anything. Restart `npm run dev` after changing keys or pulling code. `.env.local` and `.data/` are ignored by Git.
+- The existing MDN JavaScript/HTML/CSS API has three records. Earlier live isolated tests confirmed both three-of-three **Ready** and one-missing **Partial data** outcomes. The current mocked suite has 33 passing tests, and lint and build pass.
+- `refresh_interval` schedules work through the separate `npm run worker` process. Restart the server and worker after changing keys or pulling code. `.env.local` and `.data/` are ignored by Git.
 
 ## 1. Discovery and failed extraction — PARTIAL
 
@@ -27,13 +27,13 @@ Completed:
 
 Still to do:
 
-- [ ] Handle likely source-name typos before a run is declared source-less. Confirmed case: a request for apples at `fresco canada` produced the query `Fresco Canada fresh apple price`, then 2 searches, 0 scrapes, 5 skipped results, and no records. A `FreshCo Canada apples price` search found a real FreshCo apple product page, and a direct Firecrawl scrape returned a product name and displayed price. Suggest the likely retailer correction to the user and give a clear discovery error; do not silently replace a named source.
-- [ ] Validate general extracted records against the original request, beyond source-title review, sparse-field checks, and the special numeric-price check. A scrapeable page can still be the wrong entity.
-- [ ] Keep internal evidence/identity fields separate from the public schema where the selected fields alone are insufficient to verify a record.
+- [x] Suggest a likely source-name correction when discovery finds no usable page, while preserving the original request. The Fresco/FreshCo case has a mocked regression.
+- [x] Review extracted records against the original request and planned subject before saving. A mocked full-pipeline wrong-retailer regression rejects a scrapeable but irrelevant record.
+- [x] Extract an internal identity field for relevance review without exposing it in the public record schema.
 - [ ] Save safe per-source diagnostic metadata for failed Firecrawl attempts. The old Walmart `no structured JSON` response cannot be diagnosed from persisted data alone.
 - [ ] Show estimated and actual Firecrawl credit use per run. The dashboard remains the authoritative source for actual charges.
 - [ ] Make the per-run budget configurable below its hard ceiling if needed; the current limits are fixed in code.
-- [ ] Base recovery on *relevant* record coverage rather than only the number of records saved, and add a repeatable full-pipeline mock regression for wrong-fruit/wrong-retailer cases.
+- [x] Base recovery on uncovered planned subjects and add repeatable mocked pipeline regressions for wrong retailer, typo discovery, refresh preservation, cancellation, and scheduling.
 
 ## 2. Optional local extraction model — TODO
 
@@ -53,16 +53,17 @@ Completed:
 
 Still to do:
 
-- [ ] Make runs durable background jobs that survive leaving the page or server restart. Add a real cancel action and reliable progress after navigation.
-- [ ] Show source details and full run history on the API detail view; currently the UI exposes only the latest run summary.
+- [x] Queue runs in SQLite for a separate worker, retry an interrupted run after its lease expires, and add cancellation and progress polling after navigation.
+- [x] Show source URLs and recent run history on the API detail view.
 - [ ] Expand settings/account navigation beyond connection status and the shared-workspace lock. Review keyboard focus/trapping and mobile layouts with hands-on testing.
 - [ ] Continue the visual redesign; the present dashboard and detail layout are functional but not final.
 
-## 4. Automatic refresh — TODO
+## 4. Automatic refresh — PARTIAL
 
-- [ ] Add a durable scheduler/worker that uses `refresh_interval`, survives server restarts, and prevents overlapping runs. A closed localhost app cannot refresh itself.
-- [ ] Reuse the confirmed schema and known sources without rerunning the initial planner every cycle. Track last/next refresh, changes, failures, and credits.
-- [ ] Add bounded recovery, repeated-failure pause/alert, and change history before offering a paid recurring service.
+- [x] Use a separate worker and SQLite queue to schedule `refresh_interval`, recover expired leases, and prevent overlapping runs. A closed localhost server still cannot refresh itself.
+- [x] Reuse the confirmed schema and known source strategy without rerunning the initial planner. Track next refresh, run history, and consecutive scheduled failures.
+- [x] Pause scheduling after two failed scheduled runs and display that state in the UI; saving settings resumes it.
+- [ ] Add record change history, actual credit tracking, and external failure alerts before offering a paid recurring service.
 
 ## 5. Accounts and ownership — TODO
 
@@ -94,13 +95,13 @@ Completed:
 
 Still to do:
 
-- [ ] Add broader repeatable end-to-end tests with mocked OpenAI/Firecrawl for wrong retailers, duplicate and irrelevant results, empty JSON, rate limits, timeouts, recovery, refresh overlap, cancellation, and user isolation.
+- [ ] Expand mocked full-pipeline coverage to duplicate results, rate limits, timeouts, and all recovery branches. User isolation depends on accounts.
 - [ ] Explore the UI manually on desktop/mobile, including keyboard dialogs and page navigation during a run. Record prompt, fields, sources, expected data, actual data, and run summary for each new bug.
 
 ## Suggested next order
 
-1. Build the mocked full-pipeline regression harness and generic record-relevance checks.
-2. Make runs durable with cancellation and full run history.
-3. Add scheduled refresh and failure alerts.
+1. Add safe per-source diagnostic metadata and credit tracking.
+2. Add record change history and external failure alerts for scheduled refresh.
+3. Expand full-pipeline regression coverage and perform hands-on UI testing.
 4. Add real accounts, ownership, and spending controls before public deployment.
 5. Add deeper API editing and the optional Ollama/Qwen extractor.

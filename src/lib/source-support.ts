@@ -55,11 +55,12 @@ export function classifySourceError(error: unknown): SourceFailureCode {
     return status === 401 || status === 403 ? "ACCESS_BLOCKED" : "SOURCE_HTTP_ERROR";
   }
   if (status === 429 || /rate.limit|quota|credit.*exhaust|insufficient.credit/.test(message)) return "RATE_LIMITED";
-  if (status === 401 || status === 402 || /invalid.api.key|billing|payment.required|unauthorized/.test(message)) return "CONFIG_OR_BILLING";
+  if (status === 401 || status === 402 || /invalid.api.key|api.key is required|billing|payment.required|unauthorized/.test(message)) return "CONFIG_OR_BILLING";
   if (/do not support this site|unsupported.site|site.not.supported/.test(message)) return "UNSUPPORTED_SITE";
   if (status === 403 || /login.required|access.denied|captcha|blocked.by/.test(message)) return "ACCESS_BLOCKED";
   if (/no structured json|no usable fields/.test(message)) return "NO_STRUCTURED_JSON";
   if (/price was not supported by source text/.test(message)) return "UNVERIFIED_PRICE";
+  if (/record does not match the request/.test(message)) return "IRRELEVANT_RECORD";
   if (/invalid value for|incomplete record/.test(message)) return "SCHEMA_MISMATCH";
   if (status === 404 || (status !== undefined && status >= 500) || /source returned http/.test(message)) return "SOURCE_HTTP_ERROR";
   return "TRANSIENT";

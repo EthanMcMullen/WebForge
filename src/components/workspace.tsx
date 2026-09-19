@@ -5,11 +5,13 @@ import type { ApiJobResponse, SourceStrategyType } from "@/lib/types";
 
 type Config = { planner_ready: boolean; extraction_ready: boolean; missing: string[] };
 type ApiRecordResponse = { id: string; job_id: string; source_url: string; data: Record<string, string | number | boolean | null>; extracted_at: string };
+type RunHistory = { id: string; startedAt: string; finishedAt: string | null; trigger: "manual" | "scheduled"; outcome: string; savedRecords: number; searchCalls: number; scrapeCalls: number; stopReason: string | null; cancelRequested: boolean };
 
 const statusLabels: Record<ApiJobResponse["status"], string> = {
   planning: "Planning",
   awaiting_fields: "Choose fields",
   planned: "Planned",
+  queued: "Queued",
   discovering: "Discovering",
   scraping: "Scraping",
   extracting: "Extracting",
@@ -37,6 +39,7 @@ export function Workspace() {
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
   const [records, setRecords] = useState<ApiRecordResponse[]>([]);
+  const [runs, setRuns] = useState<RunHistory[]>([]);
   const [name, setName] = useState("");
   const [userRequest, setUserRequest] = useState("");
   const [strategy, setStrategy] = useState<SourceStrategyType>("automatic");
@@ -78,6 +81,20 @@ export function Workspace() {
       .then((result: { records?: ApiRecordResponse[] }) => setRecords(result.records || []))
       .catch(() => setRecords([]));
   }, [selectedId, jobs, accessState]);
+
+  useEffect(() => {
+    if (!selectedId || accessState !== "unlocked") return;
+    void fetch(`/api/jobs/${selectedId}/runs`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((result: { runs?: RunHistory[] }) => setRuns(result.runs || []))
+      .catch(() => setRuns([]));
+  }, [selectedId, jobs, accessState]);
+
+  useEffect(() => {
+    if (accessState !== "unlocked" || !jobs.some((job) => ["queued", "discovering", "scraping", "extracting", "storing"].includes(job.status))) return;
+    const timer = window.setInterval(() => { void loadJobs(); }, 1500);
+    return () => window.clearInterval(timer);
+  }, [accessState, jobs, loadJobs]);
 
 
   useEffect(() => {
@@ -153,13 +170,20 @@ export function Workspace() {
   }
 
   async function runJob(jobId: string, action: "run" | "refresh") {
-    const progress = window.setInterval(() => { void loadJobs(jobId); }, 1500);
-    try {
-      const response = await fetch(`/api/jobs/${jobId}/${action}`, { method: "POST" });
-      const result = await response.json() as { job?: ApiJobResponse; error?: string };
-      await loadJobs(jobId);
-      setMessage(result.job?.error || result.error || (response.ok ? "API records are ready." : "Extraction failed."));
-    } finally { window.clearInterval(progress); }
+    const response = await fetch(`/api/jobs/${jobId}/${action}`, { method: "POST" });
+    const result = await response.json() as { job?: ApiJobResponse; error?: string };
+    if (!response.ok) throw new Error(result.error || "Could not queue run.");
+    await loadJobs(jobId);
+    setMessage("Run queued. Progress will update here automatically.");
+  }
+
+  async function cancelRun() {
+    if (!selected) return;
+    const response = await fetch(`/api/jobs/${selected.id}/cancel`, { method: "POST" });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) { setMessage(result.error || "Could not cancel run."); return; }
+    await loadJobs(selected.id);
+    setMessage("Cancellation requested.");
   }
 
   async function confirmFields() {
@@ -330,7 +354,7 @@ export function Workspace() {
             </div>
 
             {strategy === "provided_urls" && <div className="seed-block"><label className="input-label" htmlFor="sources">SOURCES <span>ONE PUBLIC URL PER LINE</span></label><textarea id="sources" rows={3} value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="https://example.com/source" /></div>}
-            <div className="interval-row"><label className="input-label" htmlFor="interval">REFRESH INTERVAL <span>MINUTES / OPTIONAL / MANUAL REFRESH IN MVP</span></label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
+            <div className="interval-row"><label className="input-label" htmlFor="interval">REFRESH INTERVAL <span>MINUTES / OPTIONAL</span></label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
             <div className="composer-footer"><span>Request / plan / Firecrawl / records / API</span><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready}>{busy ? "Planning..." : "Propose fields"}<span aria-hidden="true">&gt;</span></button></div>
           </section>}
 
@@ -339,7 +363,7 @@ export function Workspace() {
               <div className="metric panel"><span>JOB</span><strong>{selected.name}</strong><small>{selected.id}</small></div>
               <div className="metric panel"><span>STATUS</span><strong className={`metric-status ${selected.status}`}>{statusLabels[selected.status]}</strong><small>Updated {new Date(selected.updated_at).toLocaleString()}</small></div>
               <div className="metric panel"><span>SCHEMA FIELDS</span><strong>{Object.keys(selected.status === "awaiting_fields" ? selected.proposed_schema : selected.schema).length}</strong><small>{selected.status === "awaiting_fields" ? "Awaiting your selection" : `${records.length} records stored`}</small></div>
-              <div className="metric panel"><span>REFRESH</span><strong>{selected.refresh_interval ? `${selected.refresh_interval}m` : "Manual"}</strong><small>{selected.source_strategy.type.replaceAll("_", " ")} / manual run</small></div>
+              <div className="metric panel"><span>REFRESH</span><strong>{selected.refresh_paused ? "Paused" : selected.refresh_interval ? `${selected.refresh_interval}m` : "Manual"}</strong><small>{selected.refresh_paused ? "Paused after two failed scheduled runs; save settings to resume" : selected.next_refresh_at ? `Next ${new Date(selected.next_refresh_at).toLocaleString()}` : selected.source_strategy.type.replaceAll("_", " ")}</small></div>
             </section>
 
             {selected.run_summary && <div className="run-summary panel" aria-label="Latest run summary">
@@ -351,6 +375,9 @@ export function Workspace() {
               <span>{selected.run_summary.recovery_calls} recovery decisions</span>
               {selected.run_summary.stop_reason && <small>{selected.run_summary.stop_reason}</small>}
             </div>}
+
+            {["queued", "discovering", "scraping", "extracting", "storing"].includes(selected.status) &&
+              <div className="run-summary panel"><span>Run in progress</span><button className="ghost-button" onClick={() => void cancelRun()} disabled={Boolean(selected.run_summary?.cancel_requested)}>{selected.run_summary?.cancel_requested ? "Cancelling..." : "Cancel run"}</button></div>}
 
             {selected.error && <div className="error-banner job-error">{selected.error}</div>}
 
@@ -389,8 +416,13 @@ export function Workspace() {
             </section>
 
             <section className="records-section panel">
-              <div className="section-header"><div><div className="section-kicker">03 / LIVE DATA</div><h2>Records</h2><p>One record per source page. Missing values appear as null.</p></div><button className="ghost-button" onClick={() => void refreshJob()} disabled={busy || !config?.extraction_ready}>{busy ? "Running..." : selected.status === "planned" ? "Run now" : "Refresh now"}</button></div>
+              <div className="section-header"><div><div className="section-kicker">03 / LIVE DATA</div><h2>Records</h2><p>One record per source page. Missing values appear as null.</p></div><button className="ghost-button" onClick={() => void refreshJob()} disabled={busy || !config?.extraction_ready || ["queued", "discovering", "scraping", "extracting", "storing"].includes(selected.status)}>{busy ? "Queuing..." : selected.status === "planned" ? "Run now" : "Refresh now"}</button></div>
               {records.length ? <div className="table-wrap"><table><thead><tr>{Object.keys(selected.schema).map((key) => <th key={key}>{key}</th>)}<th>Extracted</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}>{Object.keys(selected.schema).map((key) => <td key={key}>{key === "source_url" ? <a href={record.source_url} target="_blank" rel="noreferrer">Source</a> : record.data[key] === null || record.data[key] === undefined ? "null" : String(record.data[key])}</td>)}<td>{new Date(record.extracted_at).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="empty-records">No records yet. Run or refresh this job after configuring Firecrawl.</p>}
+            </section>
+
+            <section className="records-section panel"><div className="section-header"><div><div className="section-kicker">RUN HISTORY</div><h2>Sources and runs</h2><p>Recent runs and the public pages used by this API.</p></div></div>
+              {selected.sources.length > 0 && <ul className="source-list">{selected.sources.map((source) => <li key={source}><a href={source} target="_blank" rel="noreferrer">{source}</a></li>)}</ul>}
+              {runs.length ? <div className="table-wrap"><table><thead><tr><th>Started</th><th>Trigger</th><th>Outcome</th><th>Saved</th><th>Searches / scrapes</th><th>Details</th></tr></thead><tbody>{runs.map((run) => <tr key={run.id}><td>{new Date(run.startedAt).toLocaleString()}</td><td>{run.trigger}</td><td>{run.outcome}</td><td>{run.savedRecords}</td><td>{run.searchCalls} / {run.scrapeCalls}</td><td>{run.stopReason || "—"}</td></tr>)}</tbody></table></div> : <p>No runs yet.</p>}
             </section>
 
             <section className="api-section panel"><div><div className="section-kicker">04 / API</div><h2>API endpoints</h2><p>Copy the records URL to use the extracted JSON.</p></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{recordsPath}</code><button onClick={() => void copyEndpoint(recordsPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy</button></div></div></section>

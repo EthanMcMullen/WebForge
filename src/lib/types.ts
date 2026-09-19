@@ -1,15 +1,16 @@
-export const apiJobStatuses = ["planning", "awaiting_fields", "planned", "discovering", "scraping", "extracting", "storing", "ready", "partial", "failed"] as const;
+export const apiJobStatuses = ["planning", "awaiting_fields", "planned", "queued", "discovering", "scraping", "extracting", "storing", "ready", "partial", "failed"] as const;
 export type ApiJobStatus = (typeof apiJobStatuses)[number];
 export type ApiFieldType = "string" | "number" | "integer" | "boolean";
 export type SourceStrategyType = "automatic" | "provided_urls";
-export type SourceFailureCode = "UNSUPPORTED_SITE" | "ACCESS_BLOCKED" | "NO_STRUCTURED_JSON" | "SCHEMA_MISMATCH" | "SOURCE_HTTP_ERROR" | "RATE_LIMITED" | "CONFIG_OR_BILLING" | "UNVERIFIED_PRICE" | "TRANSIENT";
-export type RunOutcome = "ready" | "partial_stopped" | "failed";
+export type SourceFailureCode = "UNSUPPORTED_SITE" | "ACCESS_BLOCKED" | "NO_STRUCTURED_JSON" | "SCHEMA_MISMATCH" | "IRRELEVANT_RECORD" | "SOURCE_HTTP_ERROR" | "RATE_LIMITED" | "CONFIG_OR_BILLING" | "UNVERIFIED_PRICE" | "TRANSIENT";
+export type RunOutcome = "queued" | "running" | "ready" | "partial_stopped" | "failed" | "cancelled";
 export interface SourceCandidate { url: string; title?: string; description?: string; parentUrl?: string; }
 export interface RunSummary {
   id: string; jobId: string; startedAt: string; finishedAt: string | null;
   searchCalls: number; scrapeCalls: number; recoveryCalls: number;
   consecutiveFailures: number; totalFailures: number; savedRecords: number;
   skippedSources: number; outcome: RunOutcome; stopReason: string | null;
+  trigger?: "manual" | "scheduled"; cancelRequested?: boolean;
 }
 export interface ApiFieldSchema { type: ApiFieldType; description?: string; }
 export type ApiRecordSchema = Record<string, ApiFieldSchema>;
@@ -19,6 +20,7 @@ export interface ApiJob {
   schema: ApiRecordSchema; sourceStrategy: SourceStrategy; sources: string[];
   refreshInterval: number | null; error: string | null; createdAt: string; updatedAt: string; recordCount?: number;
   blockedDomains?: string[]; runSummary?: RunSummary | null;
+  nextRefreshAt?: string | null; refreshFailures?: number; refreshPaused?: boolean;
   proposedSchema?: ApiRecordSchema; schemaConfirmedAt?: string | null;
 }
 export interface ApiJobResponse {
@@ -27,10 +29,11 @@ export interface ApiJobResponse {
   sources: string[]; refresh_interval: number | null; error: string | null; record_count: number;
   created_at: string; updated_at: string;
   proposed_schema: ApiRecordSchema; schema_confirmed_at: string | null;
+  next_refresh_at: string | null; refresh_failures: number; refresh_paused: boolean;
   run_summary: {
     search_calls: number; scrape_calls: number; recovery_calls: number;
     saved_records: number; skipped_sources: number; outcome: RunOutcome; stop_reason: string | null;
-    started_at: string; finished_at: string | null;
+    started_at: string; finished_at: string | null; id: string; trigger: "manual" | "scheduled"; cancel_requested: boolean;
   } | null;
 }
 export interface ApiPlan { name: string; schema: ApiRecordSchema; searchQueries: string[]; }
@@ -48,11 +51,13 @@ export function toApiJobResponse(job: ApiJob): ApiJobResponse {
     created_at: job.createdAt, updated_at: job.updatedAt,
     proposed_schema: job.status === "awaiting_fields" ? (job.proposedSchema || {}) : {},
     schema_confirmed_at: job.schemaConfirmedAt || null,
+    next_refresh_at: job.nextRefreshAt || null, refresh_failures: job.refreshFailures || 0, refresh_paused: job.refreshPaused || false,
     run_summary: run ? {
       search_calls: run.searchCalls, scrape_calls: run.scrapeCalls, recovery_calls: run.recoveryCalls,
       saved_records: run.savedRecords, skipped_sources: run.skippedSources,
       outcome: run.outcome, stop_reason: run.stopReason,
-      started_at: run.startedAt, finished_at: run.finishedAt,
+      started_at: run.startedAt, finished_at: run.finishedAt, id: run.id,
+      trigger: run.trigger || "manual", cancel_requested: run.cancelRequested || false,
     } : null,
   };
 }
