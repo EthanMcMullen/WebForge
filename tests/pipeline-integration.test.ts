@@ -509,4 +509,45 @@ test("a scheduled cycle that saves a record resets the no-progress count", async
   assert.equal((await store.getApiJob(api.id))?.refreshPaused, false);
 });
 
+test("automatic refresh can be paused, resumed, and changed back to manual", async () => {
+  const api = job("provided_urls");
+  api.refreshInterval = 60;
+  await store.saveApiJob(api);
+  await testDb.collection("api_jobs").updateOne({ id: api.id }, { $set: {
+    nextRefreshAt: "2030-01-01T00:00:00.000Z", refreshFailures: 1,
+  } });
+
+  const paused = await store.updateApiJobSettings(api.id, { refreshPaused: true });
+  assert.equal(paused.refreshPaused, true);
+  assert.equal(paused.nextRefreshAt, null);
+  assert.equal(paused.refreshFailures, 1);
+
+  const renamed = await store.updateApiJobSettings(api.id, { name: "Renamed scheduled API" });
+  assert.equal(renamed.refreshPaused, true);
+  assert.equal(renamed.nextRefreshAt, null);
+  assert.equal(renamed.refreshFailures, 1);
+
+  const resumed = await store.updateApiJobSettings(api.id, { refreshPaused: false });
+  assert.equal(resumed.refreshPaused, false);
+  assert.ok(resumed.nextRefreshAt);
+  assert.equal(resumed.refreshFailures, 0);
+
+  const manual = await store.updateApiJobSettings(api.id, { refreshInterval: null });
+  assert.equal(manual.refreshInterval, null);
+  assert.equal(manual.refreshPaused, false);
+  assert.equal(manual.nextRefreshAt, null);
+});
+
+test("cancelling a queued scheduled refresh advances its next run", async () => {
+  const api = job("provided_urls");
+  api.refreshInterval = 15;
+  await store.saveApiJob(api);
+  await testDb.collection("api_jobs").updateOne({ id: api.id }, { $set: { nextRefreshAt: "2020-01-01T00:00:00.000Z" } });
+  assert.equal(await store.enqueueDueRefreshes(), 1);
+  const cancelled = await store.requestRunCancellation(api.id);
+  assert.equal(cancelled.runSummary?.outcome, "cancelled");
+  assert.ok(cancelled.nextRefreshAt && Date.parse(cancelled.nextRefreshAt) > Date.now());
+  assert.equal(await store.enqueueDueRefreshes(), 0);
+});
+
 }

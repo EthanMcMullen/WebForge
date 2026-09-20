@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { apiJobStatuses, toApiJobResponse, toApiRecordResponse, type ApiJob } from "../src/lib/types.ts";
 import { extractionJsonSchema, normalizeExtractedData, selectSourceUrls } from "../src/lib/extraction.ts";
-import { ApiRecordSchemaInput, CreateApiJobInput, cleanSourceUrls, normalizePublicUrl } from "../src/lib/validation.ts";
+import { ApiRecordSchemaInput, CreateApiJobInput, UpdateApiJobInput, cleanSourceUrls, normalizePublicUrl } from "../src/lib/validation.ts";
 
 test("API jobs support every pipeline lifecycle status", () => {
   assert.deepEqual(apiJobStatuses, [
@@ -27,6 +27,15 @@ test("provided URL strategy requires sources", () => {
     source_strategy: { type: "provided_urls" },
   });
   assert.equal(result.success, false);
+});
+
+test("refresh settings accept explicit automatic pause controls", () => {
+  assert.deepEqual(UpdateApiJobInput.parse({ refresh_interval: 60, refresh_paused: false }), {
+    refresh_interval: 60,
+    refresh_paused: false,
+  });
+  assert.deepEqual(UpdateApiJobInput.parse({ refresh_paused: true }), { refresh_paused: true });
+  assert.equal(UpdateApiJobInput.safeParse({}).success, false);
 });
 
 test("record schemas validate field names and supported types", () => {

@@ -26,6 +26,7 @@ export async function PATCH(request: NextRequest, context: RouteContext<"/api/jo
     const job = await updateApiJobSettings(id, {
       name: input.name,
       refreshInterval: input.refresh_interval,
+      refreshPaused: input.refresh_paused,
       searchDepth: input.search_depth,
     });
     return NextResponse.json({ job: toApiJobResponse(job) });

@@ -142,6 +142,7 @@ export async function requestRunCancellation(jobId: string): Promise<ApiJob> {
     if (result.modifiedCount) {
       const count = await countApiRecords(jobId);
       await jobs.updateOne({ id: jobId }, { $set: { status: count ? "partial" : "planned", error: "Run cancelled.", updatedAt: now } });
+      await finishRefreshSchedule(jobId, run.trigger || "manual", "cancelled", 0);
     }
   }
   return (await getApiJob(jobId))!;
@@ -229,17 +230,25 @@ export async function saveCombinedApiRecord(jobId: string, record: ApiRecord): P
   } finally { await session.endSession(); }
 }
 const activeStatuses: ApiJobStatus[] = ["planning", "queued", "discovering", "scraping", "extracting", "storing"];
-export async function updateApiJobSettings(jobId: string, input: { name?: string; refreshInterval?: number | null; searchDepth?: SearchDepth }): Promise<ApiJob> {
+export async function updateApiJobSettings(jobId: string, input: { name?: string; refreshInterval?: number | null; refreshPaused?: boolean; searchDepth?: SearchDepth }): Promise<ApiJob> {
   const { jobs } = await collections();
   const job = await jobs.findOne({ id: jobId });
   if (!job) throw new Error("API job not found.");
   const now = new Date().toISOString();
   const interval = input.refreshInterval === undefined ? job.refreshInterval : input.refreshInterval;
-  const next = interval ? new Date(Date.now() + interval * 60_000).toISOString() : null;
+  if (input.refreshPaused && !interval) throw new Error("Set an automatic refresh interval before pausing it.");
+  const scheduleChanged = input.refreshInterval !== undefined || input.refreshPaused !== undefined;
+  const paused = !interval ? false : input.refreshPaused ?? (input.refreshInterval !== undefined ? false : Boolean(job.refreshPaused));
+  const next = scheduleChanged
+    ? interval && !paused ? new Date(Date.now() + interval * 60_000).toISOString() : null
+    : job.nextRefreshAt || null;
+  const failures = input.refreshInterval !== undefined || input.refreshPaused === false
+    ? 0
+    : job.refreshFailures || 0;
   const updated = await jobs.updateOne({ id: jobId, status: { $nin: activeStatuses } }, { $set: {
     name: input.name ?? job.name, searchDepth: input.searchDepth ?? job.searchDepth ?? "balanced",
     refreshInterval: interval, nextRefreshAt: next,
-    refreshPaused: false, refreshFailures: 0, updatedAt: now,
+    refreshPaused: paused, refreshFailures: failures, updatedAt: now,
   } });
   if (!updated.matchedCount) throw new Error("This API is running. Wait for the run to finish before changing settings.");
   return (await getApiJob(jobId))!;
