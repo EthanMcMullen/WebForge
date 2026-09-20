@@ -1,275 +1,152 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { HomeComposer } from "@/components/home-composer";
-import { BeforeAfter } from "@/components/before-after";
 
 export const metadata: Metadata = {
-  title: "WebForge — Point at the web. Get an API.",
-  description: "Describe public web data in plain English. WebForge plans fields, extracts records, and serves live JSON.",
+  title: "WebForge — Turn the public web into an API",
+  description: "Describe the public data you need. WebForge finds it, verifies it, and serves sourced JSON.",
 };
 
-const examples = [
+const stages = [
+  { number: "01", title: "Say what you need", body: "Write a plain-English request or point WebForge at known pages. No schema wrestling." },
+  { number: "02", title: "Approve the contract", body: "Keep the proposed fields you want. No scrape runs—and no credits are spent—before approval." },
+  { number: "03", title: "Ship the endpoint", body: "Call stable JSON with source URLs, run history, and refresh controls already attached." },
+];
+
+const specimens = [
   {
-    label: "Price tracker",
-    request: "Track espresso machine prices across three retailers with product name, price, and availability.",
-    records: [
-      { product: "Entry espresso machine", price: 449.0, availability: "In stock" },
-      { product: "Compact grinder", price: 129.0, availability: "Low stock" },
-    ],
-    endpoint: "GET /records → 48 rows",
+    id: "A-01",
+    name: "Price watch",
+    prompt: "Track espresso machine prices across three retailers.",
+    endpoint: "/api/jobs/espresso/records",
+    record: { product: "Bambino Plus", price: 499.95, availability: "in_stock", source_url: "retailer.example/p/bambino" },
   },
   {
-    label: "Event directory",
-    request: "List upcoming hackathons with event name, date, and location.",
-    records: [
-      { event: "Harbor Hackathon", date: "Jun 12", location: "Boston" },
-      { event: "Civic Data Summit", date: "Jul 18", location: "Chicago" },
-    ],
-    endpoint: "GET /records → 86 rows",
+    id: "B-07",
+    name: "Course index",
+    prompt: "List Waterloo CS courses, prerequisites, and professors.",
+    endpoint: "/api/jobs/courses/records",
+    record: { course: "CS 246", prerequisite: "CS 136", professor: "A. Instructor", source_url: "uwaterloo.ca/course/CS246" },
   },
   {
-    label: "Menu monitor",
-    request: "Monitor new menu items at downtown ramen spots with dish name, price, and dietary tags.",
-    records: [
-      { dish: "Shoyu ramen", price: 14.5, tags: "Vegetarian option" },
-      { dish: "Miso eggplant", price: 11.0, tags: "Vegan" },
-    ],
-    endpoint: "GET /records → 412 rows",
+    id: "C-12",
+    name: "Event wire",
+    prompt: "Find upcoming hackathons with dates and locations.",
+    endpoint: "/api/jobs/hackathons/records",
+    record: { event: "Build Weekend", date: "2026-10-03", location: "Toronto", source_url: "events.example/build-weekend" },
   },
 ];
 
-const steps = [
-  { n: "01", title: "Describe", body: "Write what you want in plain English. Pick automatic discovery or paste up to five URLs." },
-  { n: "02", title: "Confirm fields", body: "WebForge proposes a schema. You keep only the fields your app needs — extraction never runs before you approve." },
-  { n: "03", title: "Call JSON", body: "Get stable records + schema endpoints. Refresh on demand or on a schedule, with run history and sources." },
-];
-
-const features = [
-  { title: "Guarded discovery", body: "Search candidates are reviewed before scraping. Unsupported, sparse, or off-topic pages are skipped — missing subjects surface as Partial data, not silent gaps.", tag: "Trust", large: true },
-  { title: "Evidence-checked prices", body: "Numeric prices must appear next to the matching item in page text. Unrelated recommendation prices are rejected.", tag: "Accuracy", large: false },
-  { title: "Source provenance", body: "Every record keeps source_url, per-field sources, run counts, and history. Audit where each value came from.", tag: "Audit", large: false },
-  { title: "Bounded runs", body: "Per-run ceilings on searches, scrapes, recovery, and time. Queued in MongoDB with cancellation, retries, and scheduled refresh.", tag: "Control", large: false },
-  { title: "Combine mode", body: "Merge complementary pages about one item — e.g. specs from Apple plus a benchmark score — into a single record.", tag: "Merge", large: true },
-  { title: "Copyable endpoints", body: "GET /records, /schema, and /jobs per API. Stable shapes your frontend can depend on.", tag: "DX", large: false },
-];
-
-const trustStats = [
-  { k: "5", v: "searches max / run" },
-  { k: "3–12", v: "structured scrapes / run" },
-  { k: "4 min", v: "bounded run ceiling" },
-  { k: "100%", v: "records carry sources" },
-];
-
-const useCases = [
-  "Price trackers",
-  "Event directories",
-  "Menu monitors",
-  "Job boards",
-  "Restock watchers",
-  "Grant deadlines",
-  "Rental scans",
-  "Benchmark merges",
+const principles = [
+  ["Bounded", "Focused, Balanced, and Deep modes put a hard ceiling on paid search and scrape calls."],
+  ["Traceable", "Every row retains its primary source; combined records cite the page behind each field."],
+  ["Skeptical", "Candidates and extracted records are checked against the original request before storage."],
+  ["Recoverable", "Partial runs keep good records, report missing subjects, and never hide failed sources."],
 ];
 
 const faqs = [
-  { q: "Does extraction run before I approve fields?", a: "No. POST /api/jobs only plans a draft with OpenAI — no Firecrawl call. Extraction queues only after you PATCH /fields and POST /run." },
-  { q: "What happens when a page is missing or off-topic?", a: "Candidates are reviewed before scraping. Sparse or mismatched pages are skipped, and incomplete subjects report as Partial — saved records stay available." },
-  { q: "How do I read the data?", a: "GET /records for rows, /schema for the confirmed shape, /runs for history. Every record includes source_url, source_urls, and field_sources." },
-  { q: "Can I merge two sites into one record?", a: "Yes — turn on Combine sources. Complementary pages about the same entity merge into one record; conflicts keep the first source and appear in the run warning." },
+  ["Does it scrape before I approve fields?", "No. Planning proposes the contract first. Extraction starts only after you confirm the fields and run the job."],
+  ["What happens when a source is wrong?", "Off-topic, sparse, private, and unsupported pages are skipped. The run reports partial data instead of quietly inventing completeness."],
+  ["Can several pages become one record?", "Yes. Combine mode can join complementary facts about the same entity while preserving per-field provenance."],
 ];
 
 export default function HomePage() {
   return (
-    <div className="site">
-      <header className="site-nav">
-        <Link className="site-brand" href="/" aria-label="WebForge home">
-          <span className="brand-mark">W</span>
-          <span><strong>WebForge</strong><small>Web → API</small></span>
-        </Link>
-        <nav className="site-links" aria-label="Site">
-          <a href="#create">Create</a>
-          <a href="#proof">Proof</a>
-          <a href="#how">How it works</a>
-          <a href="#examples">Examples</a>
-          <a href="#features">Features</a>
-          <a href="#faq">FAQ</a>
-          <Link href="/cli">CLI</Link>
+    <div className="forge-site">
+      <header className="forge-nav">
+        <Link className="forge-wordmark" href="/" aria-label="WebForge home"><span>WF</span><strong>WEBFORGE</strong></Link>
+        <div className="forge-nav-status" aria-label="System status"><i /> BUILDING PUBLIC DATA INFRASTRUCTURE</div>
+        <nav aria-label="Primary navigation">
+          <a href="#workbench">Workbench</a><a href="#method">Method</a><a href="#specimens">Specimens</a><Link href="/cli">CLI</Link>
         </nav>
-        <div className="site-nav-cta">
-          <a className="ghost-button" href="/dashboard">Open dashboard</a>
-          <a className="primary-button site-cta" href="#create">Forge an API</a>
-        </div>
+        <Link className="forge-nav-button" href="/dashboard">OPEN APP <span>↗</span></Link>
       </header>
 
-      <main className="site-main site-main-killer">
-        {/* 1 — HERO: one promise, one action */}
-        <section className="site-hero-center" aria-label="Intro">
-          <p className="section-kicker">-Type one sentence. Get live JSON. -</p>
-          <h1>Point at the web.<br /><em>Get an API.</em></h1>
-          <div className="fun-line" aria-hidden="true"><span>Public web data, served as live JSON</span></div>
-          <p className="landing-sub site-hero-sub">The box below is the real thing — the same New API composer from the dashboard. Watch an idea type itself, then make it yours.</p>
-          <ul className="site-trust" aria-label="Run guarantees">
-            {trustStats.map((s) => (
-              <li key={s.v}><strong>{s.k}</strong><span>{s.v}</span></li>
-            ))}
-          </ul>
-        </section>
+      <main>
+        <section className="forge-hero" aria-labelledby="forge-title">
+          <div className="forge-hero-copy">
+            <p className="forge-overline"><span>HACKATHON BUILD / 2026</span><span>PUBLIC WEB → CLEAN JSON</span></p>
+            <h1 id="forge-title">The web is<br />not a database.<br /><em>We make it behave.</em></h1>
+            <div className="forge-hero-bottom">
+              <p>Describe the public data you need. WebForge finds the right pages, extracts the fields you approve, and gives your project an endpoint before demo time.</p>
+              <a className="forge-arrow-link" href="#workbench">BUILD YOUR API <span>↓</span></a>
+            </div>
+          </div>
 
-        {/* 2 — HERO DEMO: composer + what-you-get rail (Stripe/Linear 2-col hero) */}
-        <div id="create" className="site-create-grid">
-          <HomeComposer />
-          <aside className="site-side-stack" aria-label="What you get">
-            <div className="panel site-json-card">
-              <div className="demo-filled-head">
-                <strong>GET /records → live JSON</strong>
-                <span className="status-pill sample">200 OK</span>
-              </div>
-              <pre className="schema-preview site-json">{`[
-  { "product": "Entry espresso machine",
-    "price": 449.0, "availability": "In stock",
-    "source_url": "retailer-a…/grinder" },
-  { "product": "Compact grinder",
-    "price": 129.0, "availability": "Low stock",
-    "source_url": "retailer-b…/compact" }
-]`}</pre>
-              <div className="site-demo-row">
-                <span>GET /schema</span><span>GET /runs</span><span>field_sources ✓</span>
-              </div>
+          <aside className="forge-console" aria-label="Example WebForge run">
+            <div className="forge-console-bar"><span>RUN_0042.LOG</span><span>LIVE</span></div>
+            <div className="forge-console-body">
+              <p><b>00:00</b> request received</p><p><b>00:01</b> schema proposed <mark>5 fields</mark></p>
+              <p><b>00:03</b> operator approved</p><p><b>00:05</b> searching public web <mark>4 queries</mark></p>
+              <p><b>00:11</b> sources reviewed <mark>8 accepted</mark></p><p><b>00:19</b> records stored <mark>6 rows</mark></p>
             </div>
-            <div className="panel site-guarantee-card">
-              <p className="section-kicker">No surprises</p>
-              <ul>
-                <li><strong>Approve first.</strong> Extraction never runs before you confirm fields.</li>
-                <li><strong>Partial, not silent.</strong> Skipped pages surface as Partial data.</li>
-                <li><strong>Every value cited.</strong> source_url + per-field sources on each row.</li>
-              </ul>
-              <a className="ghost-button" href="#proof">See the proof ↓</a>
-            </div>
+            <div className="forge-console-result"><span>GET</span><code>/api/jobs/0042/records</code><strong>200</strong></div>
+            <div className="forge-console-foot"><span>SEARCH 4/4</span><span>SCRAPE 6/6</span><span>SOURCED 100%</span></div>
           </aside>
-        </div>
+        </section>
 
-        {/* 3 — SOCIAL PROOF directly under hero (highest-lift block) */}
-        <section className="site-proof-strip panel" aria-label="Built for">
-          <p className="section-kicker">Built for data hunters</p>
-          <div className="site-marquee" aria-hidden="true">
-            <div className="site-marquee-track">
-              {[...useCases, ...useCases].map((u, i) => (
-                <span key={`${u}-${i}`}>{u}</span>
-              ))}
-            </div>
+        <div className="forge-tape" aria-hidden="true"><div>
+          <span>SCHEMA FIRST</span><i>◆</i><span>NO SILENT GAPS</span><i>◆</i><span>FIELD-LEVEL SOURCES</span><i>◆</i><span>BOUNDED CREDIT USE</span><i>◆</i>
+          <span>SCHEMA FIRST</span><i>◆</i><span>NO SILENT GAPS</span><i>◆</i><span>FIELD-LEVEL SOURCES</span><i>◆</i><span>BOUNDED CREDIT USE</span><i>◆</i>
+        </div></div>
+
+        <section id="workbench" className="forge-workbench" aria-labelledby="workbench-title">
+          <header className="forge-section-head">
+            <div><span>01 / WORKBENCH</span><span>REAL INPUT — NOT A MOCKUP</span></div>
+            <h2 id="workbench-title">Make the endpoint<br />you wish existed.</h2>
+          </header>
+          <HomeComposer />
+          <div className="forge-output-strip">
+            <div className="forge-output-label"><span>OUTPUT PREVIEW</span><strong>GET /records</strong><small>application/json</small></div>
+            <pre><code>{JSON.stringify([
+              { course: "CS 246", professor: "A. Instructor", rating: 4.7 },
+              { course: "CS 341", professor: "B. Instructor", rating: 4.4 },
+            ], null, 2)}</code></pre>
+            <div className="forge-output-proof"><p><b>✓</b> source_url on every row</p><p><b>✓</b> schema endpoint included</p><p><b>✓</b> refresh without replanning</p></div>
           </div>
         </section>
 
-        {/* 4 — INTERACTIVE PROOF */}
-        <div id="proof">
-          <BeforeAfter />
-        </div>
+        <section id="method" className="forge-method" aria-labelledby="method-title">
+          <header className="forge-section-head forge-section-head-dark">
+            <div><span>02 / METHOD</span><span>THREE MOVES</span></div><h2 id="method-title">From sentence to<br />software primitive.</h2>
+          </header>
+          <ol>{stages.map((stage) => <li key={stage.number}><span>{stage.number}</span><h3>{stage.title}</h3><p>{stage.body}</p></li>)}</ol>
+        </section>
 
-        {/* 5 — HOW IT WORKS: 3-move timeline */}
-        <section id="how" className="site-section panel" aria-label="How it works">
-          <p className="section-kicker">How it works</p>
-          <h2>From sentence to endpoint in three moves.</h2>
-          <div className="how-row site-how">
-            {steps.map((step) => (
-              <div className="how-step" key={step.n}>
-                <span className="step-number">{step.n}</span>
-                <div><strong>{step.title}</strong><p>{step.body}</p></div>
-              </div>
-            ))}
-          </div>
-          <div className="site-section-cta">
-            <a className="primary-button" href="/dashboard">Open the dashboard</a>
-            <a className="ghost-button" href="#examples">See examples</a>
+        <section id="specimens" className="forge-specimens" aria-labelledby="specimens-title">
+          <header className="forge-section-head">
+            <div><span>03 / SPECIMENS</span><span>REQUEST → RECORD</span></div><h2 id="specimens-title">Three things you could<br />ship this weekend.</h2>
+          </header>
+          <div className="forge-specimen-list">
+            {specimens.map((specimen) => <article key={specimen.id}>
+              <div className="forge-specimen-meta"><span>{specimen.id}</span><strong>{specimen.name}</strong></div>
+              <blockquote>“{specimen.prompt}”</blockquote><pre><code>{JSON.stringify(specimen.record, null, 2)}</code></pre>
+              <div className="forge-specimen-action"><code>GET {specimen.endpoint}</code><Link href={`/dashboard?request=${encodeURIComponent(specimen.prompt)}`}>USE THIS BRIEF →</Link></div>
+            </article>)}
           </div>
         </section>
 
-        {/* 6 — FEATURES as BENTO (67% of top SaaS pages pattern) */}
-        <section id="features" className="site-section" aria-label="Features">
-          <p className="section-kicker">Why WebForge</p>
-          <h2>Serious about provenance, bounded by design.</h2>
-          <p className="landing-sub">One big promise, supporting proof. Large tiles carry the ideas that close deals; small tiles handle objections.</p>
-          <div className="site-bento">
-            {features.map((feature) => (
-              <div key={feature.title} className={feature.large ? "panel site-bento-card site-bento-large" : "panel site-bento-card"}>
-                <span className="site-bento-tag">{feature.tag}</span>
-                <strong>{feature.title}</strong>
-                <p>{feature.body}</p>
-              </div>
-            ))}
-          </div>
+        <section className="forge-principles" aria-labelledby="principles-title">
+          <div className="forge-principles-intro"><span>04 / RULES OF THE FORGE</span><h2 id="principles-title">Useful data<br />has receipts.</h2><p>A fast demo is good. A fast demo that can explain every value is better.</p></div>
+          <dl>{principles.map(([term, description], index) => <div key={term}><dt><span>0{index + 1}</span>{term}</dt><dd>{description}</dd></div>)}</dl>
         </section>
 
-        {/* 7 — EXAMPLES with endpoint proof */}
-        <section id="examples" className="site-section panel" aria-label="Examples">
-          <p className="section-kicker">Examples</p>
-          <h2>Start from a pattern, make it yours.</h2>
-          <div className="site-cards">
-            {examples.map((example) => (
-              <article key={example.label} className="panel site-card">
-                <p className="section-kicker">{example.label}</p>
-                <p className="site-card-request">“{example.request}”</p>
-                <pre className="schema-preview site-pattern-json"><code>{JSON.stringify(example.records, null, 2)}</code></pre>
-                <div className="site-card-foot">
-                  <span className="status-pill sample">{example.endpoint}</span>
-                  <a className="text-button" href={`/dashboard?request=${encodeURIComponent(example.request)}`}>Use this pattern →</a>
-                </div>
-              </article>
-            ))}
-          </div>
+        <section className="forge-cli" aria-labelledby="cli-title">
+          <div className="forge-cli-copy"><p>05 / TERMINAL EDITION</p><h2 id="cli-title">Stay in the flow.</h2><span>One dependency-free file. Same jobs, records, depth controls, and sources as the web app.</span><Link href="/cli">DOWNLOAD CLI →</Link></div>
+          <pre aria-label="WebForge CLI example"><code><b>$</b> node webforge-cli.mjs create --wait{"\n"}{"\n"}<i>?</i> What data do you need?{"\n"}<strong>› Upcoming climate-tech grants</strong>{"\n"}{"\n"}<i>✓</i> 6 fields approved{"\n"}<i>✓</i> 12 records stored{"\n"}<i>✓</i> API ready</code></pre>
         </section>
 
-        <section className="site-cli-banner panel" aria-label="WebForge CLI download">
-          <div>
-            <p className="section-kicker">CLI edition</p>
-            <h2>Forge APIs from your VS Code terminal.</h2>
-            <p>Download one dependency-free Node file and connect it to the same WebForge service.</p>
-          </div>
-          <div className="site-cli-banner-action">
-            <code>node webforge-cli.mjs create --wait</code>
-            <Link className="primary-button" href="/cli">Download the CLI</Link>
-          </div>
+        <section className="forge-faq" aria-labelledby="faq-title">
+          <div><span>06 / STRAIGHT ANSWERS</span><h2 id="faq-title">Before you forge.</h2></div>
+          <div>{faqs.map(([question, answer], index) => <details key={question} open={index === 0}><summary>{question}<span>+</span></summary><p>{answer}</p></details>)}</div>
         </section>
 
-        {/* 8 — STATS BAND */}
-        <section className="site-stats-band panel" aria-label="Run stats">
-          <div><strong>1,284</strong><span>records stored in demo data</span></div>
-          <div><strong>9 / 12</strong><span>APIs ready right now</span></div>
-          <div><strong>5 + 1</strong><span>planned + recovery searches per run</span></div>
-          <div><strong>0</strong><span>extractions before field approval</span></div>
-        </section>
-
-        {/* 9 — FAQ (objection handling before final CTA) */}
-        <section id="faq" className="site-section panel site-faq" aria-label="FAQ">
-          <p className="section-kicker">FAQ</p>
-          <h2>Asked before every forge.</h2>
-          <div className="site-faq-list">
-            {faqs.map((f) => (
-              <details key={f.q}>
-                <summary>{f.q}</summary>
-                <p>{f.a}</p>
-              </details>
-            ))}
-          </div>
-        </section>
-
-        {/* 10 — CLOSING CTA (mirrors hero, single action) */}
-        <section className="site-cta-panel site-cta-xl panel" aria-label="Get started">
-          <div>
-            <p className="section-kicker">Ready when you are</p>
-            <h2>Your next dataset is one sentence away.</h2>
-            <p>Describe it. Approve the fields. Call the JSON. Keep the sources.</p>
-          </div>
-          <div className="site-section-cta site-cta-actions">
-            <a className="primary-button" href="#create">Forge an API</a>
-            <Link className="ghost-button" href="/cli">Download CLI</Link>
-            <a className="ghost-button" href="/dashboard">View dashboard</a>
-          </div>
-        </section>
+        <section className="forge-final" aria-label="Get started"><span>YOUR IDEA NEEDS DATA.</span><h2>Stop hunting pages.<br /><em>Start calling an API.</em></h2><div><a href="#workbench">FORGE IT NOW ↓</a><Link href="/dashboard">OPEN DASHBOARD ↗</Link></div></section>
       </main>
 
-      <footer className="site-footer">
-        <span><strong>WebForge</strong> · Describe data. Get an API.</span>
-        <span><a href="/dashboard">Dashboard</a> · <Link href="/cli">CLI download</Link> · <a href="#how">How it works</a> · <a href="#features">Features</a> · <a href="#faq">FAQ</a></span>
+      <footer className="forge-footer">
+        <Link className="forge-wordmark" href="/"><span>WF</span><strong>WEBFORGE</strong></Link><p>Public web data with a paper trail.</p>
+        <div><Link href="/dashboard">APP</Link><Link href="/cli">CLI</Link><a href="#workbench">CREATE</a></div><small>BUILD 2026.09</small>
       </footer>
     </div>
   );
