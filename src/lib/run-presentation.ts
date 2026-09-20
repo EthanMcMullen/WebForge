@@ -1,5 +1,10 @@
 import type { RunOutcome } from "./types.ts";
 
+/** Planned scrape caps are normal for automatic discovery, including older runs that appended vision success text. */
+export function isExpectedScrapeCap(reason: string | null): boolean {
+  return reason !== null && /^Stopped at the \d+-scrape (?:focused|balanced|deep) search-depth limit\.(?: Vision fallback recovered \d+ sources? from page screenshots\.)?$/.test(reason);
+}
+
 export interface RunPresentationInput {
   automatic: boolean;
   hasRecords: boolean;
@@ -14,7 +19,7 @@ export function presentRunResult(input: RunPresentationInput): {
   stopReason: string | null;
   warning: string | null;
 } {
-  const recovered = input.automatic && input.savedRecords > 0 && !input.stopReason;
+  const recovered = input.automatic && input.savedRecords > 0 && (!input.stopReason || input.expectedCap);
   const reason = input.expectedCap || recovered ? null
     : input.stopReason || (input.errors.length
       ? `${input.errors.length} source(s) skipped or failed.`

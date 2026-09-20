@@ -10,10 +10,12 @@ export interface SourceAttempt {
   url: string; query: string | null; stage: "candidate_filter" | "source_review" | "scrape" | "quality_check" | "record_review" | "save";
   code: SourceFailureCode | "FILTERED" | "REJECTED" | "BUDGET" | "SAVED";
   title?: string; fieldsPresent?: string[]; fieldsMissing?: string[];
+  visionAttempted?: boolean; viaVision?: boolean;
 }
 export interface RunSummary {
   id: string; jobId: string; startedAt: string; finishedAt: string | null;
   searchCalls: number; scrapeCalls: number; recoveryCalls: number;
+  visionAttempts?: number; visionRecoveries?: number;
   consecutiveFailures: number; totalFailures: number; savedRecords: number;
   skippedSources: number; identifiedItems?: number; outcome: RunOutcome; stopReason: string | null;
   trigger?: "manual" | "scheduled"; cancelRequested?: boolean; attempts?: SourceAttempt[];
@@ -39,6 +41,7 @@ export interface ApiJobResponse {
   next_refresh_at: string | null; refresh_failures: number; refresh_paused: boolean;
   run_summary: {
     search_calls: number; scrape_calls: number; recovery_calls: number;
+    vision_attempts: number | null; vision_recoveries: number | null;
     saved_records: number; skipped_sources: number; identified_items: number | null; outcome: RunOutcome; stop_reason: string | null;
     started_at: string; finished_at: string | null; id: string; trigger: "manual" | "scheduled"; cancel_requested: boolean; attempts: SourceAttempt[];
   } | null;
@@ -63,6 +66,7 @@ export function toApiJobResponse(job: ApiJob): ApiJobResponse {
     next_refresh_at: job.nextRefreshAt || null, refresh_failures: job.refreshFailures || 0, refresh_paused: job.refreshPaused || false,
     run_summary: run ? {
       search_calls: run.searchCalls, scrape_calls: run.scrapeCalls, recovery_calls: run.recoveryCalls,
+      vision_attempts: run.visionAttempts ?? null, vision_recoveries: run.visionRecoveries ?? null,
       saved_records: run.savedRecords, skipped_sources: run.skippedSources, identified_items: run.identifiedItems ?? null,
       outcome: run.outcome, stop_reason: run.stopReason,
       started_at: run.startedAt, finished_at: run.finishedAt, id: run.id,

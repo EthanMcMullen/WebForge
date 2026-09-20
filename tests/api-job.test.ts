@@ -79,6 +79,30 @@ test("API responses use the public snake_case contract", () => {
   assert.deepEqual(draft.schema, {});
 });
 
+test("run responses show vision attempts and successful uses without inventing legacy history", () => {
+  const job: ApiJob = {
+    id: "job-vision", name: "Vision example", userRequest: "Track a product price", status: "ready",
+    schema: { price: { type: "number" }, source_url: { type: "string" } },
+    sourceStrategy: { type: "provided_urls", searchQueries: [] }, searchDepth: "balanced",
+    sources: ["https://shop.example/item"], refreshInterval: null, error: null,
+    createdAt: "2026-09-20T00:00:00.000Z", updatedAt: "2026-09-20T00:00:00.000Z",
+    runSummary: {
+      id: "run-vision", jobId: "job-vision", startedAt: "2026-09-20T00:00:00.000Z", finishedAt: null,
+      searchCalls: 0, scrapeCalls: 2, recoveryCalls: 0, consecutiveFailures: 0, totalFailures: 0,
+      savedRecords: 1, skippedSources: 0, outcome: "ready", stopReason: null,
+      visionAttempts: 1, visionRecoveries: 1,
+      attempts: [{ url: "https://shop.example/item", query: null, stage: "save", code: "SAVED",
+        visionAttempted: true, viaVision: true }],
+    },
+  };
+  const response = toApiJobResponse(job).run_summary;
+  assert.equal(response?.vision_attempts, 1);
+  assert.equal(response?.vision_recoveries, 1);
+  assert.equal(response?.attempts[0].viaVision, true);
+  assert.equal(toApiJobResponse({ ...job, runSummary: { ...job.runSummary!, visionAttempts: undefined,
+    visionRecoveries: undefined } }).run_summary?.vision_attempts, null);
+});
+
 test("record responses expose per-field sources alongside the primary URL", () => {
   const record = toApiRecordResponse({ id: "r1", jobId: "j1", sourceUrl: "https://apple.example/specs",
     sourceUrls: ["https://apple.example/specs", "https://bench.example/results"],

@@ -17,7 +17,7 @@ function client(): Firecrawl {
 export const firecrawlProvider: ExtractionProvider = {
   async extractCollection(url, schema, userRequest, subjectHint) {
     const itemSchema = extractionJsonSchema(schema);
-    const result = await client().scrape(url, { formats: [{
+    const result = await client().scrape(url, { maxAge: 0, formats: [{
       type: "json",
       schema: { type: "object", properties: {
         items: { type: "array", items: itemSchema },
@@ -67,6 +67,8 @@ export const firecrawlProvider: ExtractionProvider = {
       required: [...extractionSchema.required, "__webforge_identity"],
     };
     const result = await client().scrape(url, {
+      // A refresh must fetch the page again instead of reusing Firecrawl's indexed copy.
+      maxAge: 0,
       formats: [
         ...(verifyPrice ? ["markdown" as const, "product" as const] : []),
         {

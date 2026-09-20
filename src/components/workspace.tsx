@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiJobResponse, SearchDepth, SourceStrategyType } from "@/lib/types";
+import { isExpectedScrapeCap } from "@/lib/run-presentation";
 import type { WorkspaceHandoff } from "@/lib/workspace-handoff";
 
 type Config = { planner_ready: boolean; extraction_ready: boolean; database_ready: boolean; vision_ready?: boolean; worker_online?: boolean; worker_seen_at?: string | null; missing: string[] };
 type ApiRecordResponse = { id: string; job_id: string; source_url: string; source_urls: string[];
   field_sources: Record<string, string>; data: Record<string, string | number | boolean | null>; extracted_at: string };
-type RunHistory = { attempts?: Array<{ url: string; query: string | null; stage: string; code: string; title?: string; fieldsPresent?: string[]; fieldsMissing?: string[] }>; id: string; startedAt: string; finishedAt: string | null; trigger: "manual" | "scheduled"; outcome: string; savedRecords: number; identifiedItems?: number; searchCalls: number; scrapeCalls: number; stopReason: string | null; cancelRequested: boolean };
+type RunHistory = { attempts?: Array<{ url: string; query: string | null; stage: string; code: string; title?: string; fieldsPresent?: string[]; fieldsMissing?: string[]; visionAttempted?: boolean; viaVision?: boolean }>; id: string; startedAt: string; finishedAt: string | null; trigger: "manual" | "scheduled"; outcome: string; savedRecords: number; identifiedItems?: number; searchCalls: number; scrapeCalls: number; visionAttempts?: number; visionRecoveries?: number; stopReason: string | null; cancelRequested: boolean };
 
 const statusLabels: Record<ApiJobResponse["status"], string> = {
   planning: "Planning",
@@ -23,6 +24,12 @@ const statusLabels: Record<ApiJobResponse["status"], string> = {
   partial: "Partial data",
   failed: "Failed",
 };
+
+function displayStatus(job: ApiJobResponse): ApiJobResponse["status"] {
+  return job.status === "partial" && job.source_strategy.type === "automatic" &&
+    (job.run_summary?.saved_records || 0) > 0 && isExpectedScrapeCap(job.run_summary?.stop_reason ?? null)
+    ? "ready" : job.status;
+}
 
 const quickStarts = [
   { label: "Price tracker", request: "Track espresso machine prices across three retailers with product name, price, and availability." },
@@ -77,6 +84,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
     () => jobs.find((job) => job.id === selectedId) || null,
     [jobs, selectedId],
   );
+  const recoveredLegacyCap = Boolean(selected && selected.status === "partial" && displayStatus(selected) === "ready");
 
   const selectedFields = selected?.status === "awaiting_fields"
     ? fieldSelections[selected.id] ?? Object.keys(selected.proposed_schema).filter((key) => key !== "source_url")
@@ -89,7 +97,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
 
   const totals = useMemo(() => {
     const recordTotal = jobs.reduce((sum, job) => sum + (job.record_count || 0), 0);
-    const readyTotal = jobs.filter((job) => job.status === "ready").length;
+    const readyTotal = jobs.filter((job) => displayStatus(job) === "ready").length;
     const activeTotal = jobs.filter((job) => ["queued", "discovering", "scraping", "extracting", "storing"].includes(job.status)).length;
     return { apis: jobs.length, records: recordTotal, ready: readyTotal, active: activeTotal };
   }, [jobs]);
@@ -384,7 +392,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
           {jobs.length ? jobs.map((job) => (
             <button key={job.id} className={`dataset-item ${selectedId === job.id && view === "detail" ? "selected" : ""}`} onClick={() => { setSelectedId(job.id); setView("detail"); setMessage(null); }}>
               <span className="dataset-dot" />
-              <span className="dataset-text"><strong>{job.name}</strong><small>{statusLabels[job.status]}</small></span>
+              <span className="dataset-text"><strong>{job.name}</strong><small>{statusLabels[displayStatus(job)]}</small></span>
             </button>
           )) : <p className="sidebar-empty">No APIs yet. Describe data to forge the first one.</p>}
         </div>
@@ -435,7 +443,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
                     {recentJobs.map((job) => (
                       <button key={job.id} className="activity-item" onClick={() => { setSelectedId(job.id); setView("detail"); setMessage(null); }}>
                         <span className={`activity-dot ${job.status === "ready" ? "ready" : job.status === "failed" ? "failed" : "queued"}`} />
-                        <span><strong>{job.name}</strong><small>{statusLabels[job.status]} · {job.record_count} records</small></span>
+                        <span><strong>{job.name}</strong><small>{statusLabels[displayStatus(job)]} · {job.record_count} records</small></span>
                         <time>{new Date(job.updated_at).toLocaleDateString()}</time>
                       </button>
                     ))}
@@ -462,7 +470,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
 
           {view === "library" && <section className="library-panel panel">
             <div className="section-header"><div><p className="section-kicker">Collection</p><h2>Library</h2><p>Every API you have forged, with status and field counts.</p></div><button className="primary-button" onClick={() => { setSelectedId(null); setView("new"); }}>New API</button></div>
-            {jobs.length ? <div className="library-list">{jobs.map((job) => <button key={job.id} className="library-item" onClick={() => { setSelectedId(job.id); setView("detail"); }}><span className={`library-status ${job.status}`} /><span><strong>{job.name}</strong><small>{statusLabels[job.status]}, {Object.keys(job.schema).length || Object.keys(job.proposed_schema).length} fields · {job.record_count} records</small></span><time>{new Date(job.updated_at).toLocaleDateString()}</time></button>)}</div> : <div className="empty-state"><strong>No APIs yet</strong><p>Forge one from the dashboard to see it here.</p><button className="primary-button" onClick={() => setView("new")}>New API</button></div>}
+            {jobs.length ? <div className="library-list">{jobs.map((job) => <button key={job.id} className="library-item" onClick={() => { setSelectedId(job.id); setView("detail"); }}><span className={`library-status ${displayStatus(job)}`} /><span><strong>{job.name}</strong><small>{statusLabels[displayStatus(job)]}, {Object.keys(job.schema).length || Object.keys(job.proposed_schema).length} fields · {job.record_count} records</small></span><time>{new Date(job.updated_at).toLocaleDateString()}</time></button>)}</div> : <div className="empty-state"><strong>No APIs yet</strong><p>Forge one from the dashboard to see it here.</p><button className="primary-button" onClick={() => setView("new")}>New API</button></div>}
           </section>}
 
           {view === "new" && <section className="composer panel">
@@ -508,7 +516,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
 
           {view === "detail" && selected && <>
             <section className="detail-hero panel">
-              <div className="detail-hero-top"><p className="section-kicker">API</p><strong className={`metric-status ${selected.status}`}>{statusLabels[selected.status]}</strong></div>
+              <div className="detail-hero-top"><p className="section-kicker">API</p><strong className={`metric-status ${displayStatus(selected)}`}>{statusLabels[displayStatus(selected)]}</strong></div>
               <h2>{selected.name}</h2>
               <figure className="prompt-quote"><figcaption>Prompt</figcaption><blockquote>“{selected.user_request}”</blockquote></figure>
               <div className="detail-meta">
@@ -522,19 +530,23 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
             </section>
 
             {selected.run_summary && <div className="run-summary panel" aria-label="Latest run summary">
-              <strong>Latest run{selected.run_summary.outcome === "partial_stopped" ? ", partial data" : ""}</strong>
+              <strong>Latest run{selected.run_summary.outcome === "partial_stopped" && !recoveredLegacyCap ? ", partial data" : ""}</strong>
               <span>{selected.run_summary.saved_records} saved{selected.run_summary.identified_items !== null ? " saved; " + selected.run_summary.identified_items + " candidate items reviewed" : ""}</span>
               <span>{selected.run_summary.skipped_sources} skipped</span>
               <span>{selected.run_summary.search_calls} searches</span>
               <span>{selected.run_summary.scrape_calls} scrapes</span>
               <span>{selected.run_summary.recovery_calls} recovery</span>
-              {selected.run_summary.stop_reason && <small>{selected.run_summary.stop_reason}</small>}
+              <span className={`vision-indicator ${selected.run_summary.vision_attempts ? "active" : ""}`}>
+                {selected.run_summary.vision_attempts === null ? "Vision: not tracked" : selected.run_summary.vision_attempts === 0
+                  ? "Vision: not used" : `Vision: ${selected.run_summary.vision_attempts} attempted · ${selected.run_summary.vision_recoveries ?? 0} used`}
+              </span>
+              {selected.run_summary.stop_reason && !recoveredLegacyCap && <small>{selected.run_summary.stop_reason}</small>}
             </div>}
 
             {["queued", "discovering", "scraping", "extracting", "storing"].includes(selected.status) &&
               <div className="run-summary panel"><span>{selected.status === "queued" ? (config?.worker_online ? "Queued for worker" : "Queued — worker offline. Start npm run worker.") : "Running"}{selected.run_summary?.cancel_requested ? " — cancellation requested" : ""}</span><button className="ghost-button" onClick={() => void cancelRun()} disabled={Boolean(selected.run_summary?.cancel_requested)}>{selected.run_summary?.cancel_requested ? "Cancelling" : "Cancel"}</button></div>}
 
-            {selected.error && <div className="error-banner job-error">{selected.error}</div>}
+            {selected.error && !recoveredLegacyCap && <div className="error-banner job-error">{selected.error}</div>}
 
             {selected.status === "awaiting_fields" && <section className="field-review panel">
               <p className="section-kicker">Review</p>
@@ -579,12 +591,15 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
                 if (key === "source_url") return <td key={key}>{value ? <a href={String(value)} target="_blank" rel="noreferrer">Source ↗</a> : <span className="null-cell">null</span>}</td>;
                 if (value === null || value === undefined || value === "") return <td key={key}><span className="null-cell">null</span></td>;
                 return <td key={key} title={record.field_sources?.[key] ? `From ${record.field_sources[key]}` : String(value)}>{String(value)}</td>;
-              })}{selected.combine_sources && <td>{(record.source_urls || [record.source_url]).map((url, index) => <span key={url}><a href={url} target="_blank" rel="noreferrer">{index + 1}</a>{index + 1 < (record.source_urls || [record.source_url]).length ? ", " : ""}</span>)}</td>}<td className="extracted-cell">{new Date(record.extracted_at).toLocaleDateString()}</td></tr>)}</tbody></table></div> : <p className="empty-records">No records yet.</p>}
+              })}{selected.combine_sources && <td>{(record.source_urls || [record.source_url]).map((url, index) => <span key={url}><a href={url} target="_blank" rel="noreferrer">{index + 1}</a>{index + 1 < (record.source_urls || [record.source_url]).length ? ", " : ""}</span>)}</td>}<td className="extracted-cell">{new Date(record.extracted_at).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="empty-records">No records yet.</p>}
             </section>
 
             <section className="records-section panel"><div className="section-header"><div><p className="section-kicker">Provenance</p><h2>Runs</h2></div></div>
               {selected.sources.length > 0 && <ul className="source-list">{selected.sources.map((source) => <li key={source}><a href={source} target="_blank" rel="noreferrer">{source}</a></li>)}</ul>}
-              {runs.length ? <div className="table-wrap"><table><thead><tr><th>Started</th><th>Trigger</th><th>Outcome</th><th>Saved</th><th>Searches, scrapes</th><th>Details</th></tr></thead><tbody>{runs.map((run) => <tr key={run.id}><td>{new Date(run.startedAt).toLocaleString()}</td><td>{run.trigger}</td><td>{run.outcome}</td><td>{run.savedRecords}</td><td>{run.searchCalls}, {run.scrapeCalls}</td><td>{run.stopReason || "—"}{Boolean(run.attempts?.length) && <details><summary>Source attempts ({run.attempts?.length})</summary><ul>{run.attempts?.map((attempt, index) => <li key={run.id + index}><strong>{attempt.code}</strong> at {attempt.stage}: {attempt.url.startsWith("http") ? <a href={attempt.url} target="_blank" rel="noreferrer">{attempt.title || attempt.url}</a> : attempt.url}{attempt.fieldsMissing?.length ? " · missing " + attempt.fieldsMissing.join(", ") : ""}</li>)}</ul></details>}</td></tr>)}</tbody></table></div> : <p className="empty-records">No runs yet.</p>}
+              {runs.length ? <div className="table-wrap"><table><thead><tr><th>Started</th><th>Trigger</th><th>Outcome</th><th>Saved</th><th>Searches, scrapes</th><th>Vision</th><th>Details</th></tr></thead><tbody>{runs.map((run) => {
+                const recoveredCap = selected.source_strategy.type === "automatic" && run.savedRecords > 0 && isExpectedScrapeCap(run.stopReason);
+                return <tr key={run.id}><td>{new Date(run.startedAt).toLocaleString()}</td><td>{run.trigger}</td><td>{recoveredCap ? "ready" : run.outcome}</td><td>{run.savedRecords}</td><td>{run.searchCalls}, {run.scrapeCalls}</td><td>{run.visionAttempts === undefined ? "Not tracked" : run.visionAttempts === 0 ? "Not used" : `${run.visionAttempts} attempted · ${run.visionRecoveries ?? 0} used`}</td><td>{recoveredCap ? "Planned scrape limit reached" : run.stopReason || "—"}{Boolean(run.attempts?.length) && <details><summary>Source attempts ({run.attempts?.length})</summary><ul>{run.attempts?.map((attempt, index) => <li key={run.id + index}><strong>{attempt.code}</strong> at {attempt.stage}: {attempt.url.startsWith("http") ? <a href={attempt.url} target="_blank" rel="noreferrer">{attempt.title || attempt.url}</a> : attempt.url}{attempt.viaVision ? " · Vision used" : attempt.visionAttempted ? " · Vision attempted" : ""}{attempt.fieldsMissing?.length ? " · missing " + attempt.fieldsMissing.join(", ") : ""}</li>)}</ul></details>}</td></tr>;
+              })}</tbody></table></div> : <p className="empty-records">No runs yet.</p>}
             </section>
 
             <section className="api-section panel"><div><p className="section-kicker">Integrate</p><h2>Endpoints</h2><p>Stable JSON for your app. Records update on refresh.</p></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{recordsPath}</code><button onClick={() => void copyEndpoint(recordsPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy</button></div></div></section>

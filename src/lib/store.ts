@@ -112,7 +112,8 @@ export async function enqueueApiRun(jobId: string, trigger: "manual" | "schedule
   if (!job.schemaConfirmedAt || !Object.keys(job.schema).length) throw new Error("Confirm fields before running.");
   const now = new Date().toISOString();
   const run: RunDocument = { id: crypto.randomUUID(), jobId, startedAt: now, finishedAt: null,
-    searchCalls: 0, scrapeCalls: 0, recoveryCalls: 0, consecutiveFailures: 0, totalFailures: 0,
+    searchCalls: 0, scrapeCalls: 0, recoveryCalls: 0, visionAttempts: 0, visionRecoveries: 0,
+    consecutiveFailures: 0, totalFailures: 0,
     savedRecords: 0, skippedSources: 0, outcome: "queued", stopReason: null, trigger,
     cancelRequested: false, leaseUntil: null };
   try { await runs.insertOne(run); }
