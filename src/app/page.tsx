@@ -23,9 +23,9 @@ const capabilities = [
 ];
 
 const founders = [
-  { initials: "MK", name: "Mobin", program: "Electrical & Computer Engineering", school: "University of Toronto", tone: "navy" },
-  { initials: "EL", name: "Ethan", program: "Computer Engineering", school: "University of Waterloo", tone: "gold" },
-  { initials: "EY", name: "Evan", program: "Computational Mathematics", school: "University of Waterloo", tone: "gold" },
+  { name: "Mobin", program: "Electrical & Computer Engineering", school: "University of Toronto", logo: "/brand/university-of-toronto.png", logoWidth: 58, logoHeight: 75, schoolKey: "uoft" },
+  { name: "Ethan", program: "Computer Engineering", school: "University of Waterloo", logo: "/brand/university-of-waterloo.svg", logoWidth: 64, logoHeight: 64, schoolKey: "waterloo" },
+  { name: "Evan", program: "Computational Mathematics", school: "University of Waterloo", logo: "/brand/university-of-waterloo.svg", logoWidth: 64, logoHeight: 64, schoolKey: "waterloo" },
 ];
 
 export default function HomePage() {
@@ -195,7 +195,7 @@ export default function HomePage() {
               <p>WebForge started from a simple frustration: useful public data is everywhere, but turning it into dependable software still takes too much time.</p>
             </div>
             <div className="company-founder-list">
-              {founders.map((founder) => <article key={founder.name}><div className={`company-founder-avatar ${founder.tone}`}>{founder.initials}</div><div><h3>{founder.name}</h3><p>{founder.program}</p><span>{founder.school}</span></div></article>)}
+              {founders.map((founder) => <article key={founder.name}><div className={`company-founder-school-logo ${founder.schoolKey}`}><Image src={founder.logo} width={founder.logoWidth} height={founder.logoHeight} alt={`${founder.school} logo`} /></div><div><h3>{founder.name}</h3><p>{founder.program}</p><span>{founder.school}</span></div></article>)}
             </div>
           </div>
         </section>
