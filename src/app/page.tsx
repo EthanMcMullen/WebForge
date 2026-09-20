@@ -1,152 +1,219 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { HomeComposer } from "@/components/home-composer";
 
 export const metadata: Metadata = {
-  title: "WebForge — Turn the public web into an API",
-  description: "Describe the public data you need. WebForge finds it, verifies it, and serves sourced JSON.",
+  title: "WebForge — Reliable web data, delivered as an API",
+  description:
+    "Describe the public data you need. WebForge finds, verifies, and delivers it through a source-backed JSON API.",
 };
 
-const stages = [
-  { number: "01", title: "Say what you need", body: "Write a plain-English request or point WebForge at known pages. No schema wrestling." },
-  { number: "02", title: "Approve the contract", body: "Keep the proposed fields you want. No scrape runs—and no credits are spent—before approval." },
-  { number: "03", title: "Ship the endpoint", body: "Call stable JSON with source URLs, run history, and refresh controls already attached." },
+const workflow = [
+  { number: "01", title: "Describe the dataset", body: "Tell WebForge what you need in plain English. We propose a clean schema before any credits are spent." },
+  { number: "02", title: "Set the search depth", body: "Choose a focused, balanced, or deep run so vague requests never turn into open-ended scraping bills." },
+  { number: "03", title: "Recover visually", body: "When readable HTML fails, WebForge captures the rendered page and extracts the same approved fields from what a person can see." },
+  { number: "04", title: "Call your endpoint", body: "Get consistent JSON, source URLs, run history, and refresh controls through the web app or CLI." },
 ];
 
-const specimens = [
-  {
-    id: "A-01",
-    name: "Price watch",
-    prompt: "Track espresso machine prices across three retailers.",
-    endpoint: "/api/jobs/espresso/records",
-    record: { product: "Bambino Plus", price: 499.95, availability: "in_stock", source_url: "retailer.example/p/bambino" },
-  },
-  {
-    id: "B-07",
-    name: "Course index",
-    prompt: "List Waterloo CS courses, prerequisites, and professors.",
-    endpoint: "/api/jobs/courses/records",
-    record: { course: "CS 246", prerequisite: "CS 136", professor: "A. Instructor", source_url: "uwaterloo.ca/course/CS246" },
-  },
-  {
-    id: "C-12",
-    name: "Event wire",
-    prompt: "Find upcoming hackathons with dates and locations.",
-    endpoint: "/api/jobs/hackathons/records",
-    record: { event: "Build Weekend", date: "2026-10-03", location: "Toronto", source_url: "events.example/build-weekend" },
-  },
+const capabilities = [
+  { label: "Controlled spend", title: "Useful coverage without runaway credits.", body: "Every depth mode has explicit search, scrape, and record targets. You decide how broad the run should be." },
+  { label: "Source-backed", title: "Every record comes with receipts.", body: "Trace data to its original page, including field-level sources when a record combines multiple websites." },
+  { label: "Production-minded", title: "Partial results stay honest.", body: "WebForge keeps valid records, reports missing fields, and surfaces failed sources instead of fabricating completeness." },
 ];
 
-const principles = [
-  ["Bounded", "Focused, Balanced, and Deep modes put a hard ceiling on paid search and scrape calls."],
-  ["Traceable", "Every row retains its primary source; combined records cite the page behind each field."],
-  ["Skeptical", "Candidates and extracted records are checked against the original request before storage."],
-  ["Recoverable", "Partial runs keep good records, report missing subjects, and never hide failed sources."],
-];
-
-const faqs = [
-  ["Does it scrape before I approve fields?", "No. Planning proposes the contract first. Extraction starts only after you confirm the fields and run the job."],
-  ["What happens when a source is wrong?", "Off-topic, sparse, private, and unsupported pages are skipped. The run reports partial data instead of quietly inventing completeness."],
-  ["Can several pages become one record?", "Yes. Combine mode can join complementary facts about the same entity while preserving per-field provenance."],
+const founders = [
+  { initials: "MK", name: "Mobin", program: "Electrical & Computer Engineering", school: "University of Toronto", tone: "navy" },
+  { initials: "EL", name: "Ethan", program: "Computer Engineering", school: "University of Waterloo", tone: "gold" },
+  { initials: "EY", name: "Evan", program: "Computational Mathematics", school: "University of Waterloo", tone: "gold" },
 ];
 
 export default function HomePage() {
   return (
-    <div className="forge-site">
-      <header className="forge-nav">
-        <Link className="forge-wordmark" href="/" aria-label="WebForge home"><span>WF</span><strong>WEBFORGE</strong></Link>
-        <div className="forge-nav-status" aria-label="System status"><i /> BUILDING PUBLIC DATA INFRASTRUCTURE</div>
-        <nav aria-label="Primary navigation">
-          <a href="#workbench">Workbench</a><a href="#method">Method</a><a href="#specimens">Specimens</a><Link href="/cli">CLI</Link>
-        </nav>
-        <Link className="forge-nav-button" href="/dashboard">OPEN APP <span>↗</span></Link>
+    <div className="company-site">
+      <header className="company-nav">
+        <div className="company-container company-nav-inner">
+          <Link className="company-brand" href="/" aria-label="WebForge home">
+            <span className="company-brand-mark" aria-hidden="true"><i /><i /><i /></span>
+            <strong>WebForge</strong>
+          </Link>
+          <nav aria-label="Primary navigation">
+            <a href="#product">Product</a><a href="#platform">Platform</a><a href="#company">Company</a><Link href="/cli">CLI</Link>
+          </nav>
+          <div className="company-nav-actions">
+            <Link className="company-login" href="/dashboard">Sign in</Link>
+            <a className="company-button company-button-small" href="#product">Start building</a>
+          </div>
+        </div>
       </header>
 
       <main>
-        <section className="forge-hero" aria-labelledby="forge-title">
-          <div className="forge-hero-copy">
-            <p className="forge-overline"><span>HACKATHON BUILD / 2026</span><span>PUBLIC WEB → CLEAN JSON</span></p>
-            <h1 id="forge-title">The web is<br />not a database.<br /><em>We make it behave.</em></h1>
-            <div className="forge-hero-bottom">
-              <p>Describe the public data you need. WebForge finds the right pages, extracts the fields you approve, and gives your project an endpoint before demo time.</p>
-              <a className="forge-arrow-link" href="#workbench">BUILD YOUR API <span>↓</span></a>
+        <section className="company-hero">
+          <div className="company-container company-hero-grid">
+            <div className="company-hero-copy">
+              <div className="company-eyebrow"><span /> Built for teams that need data, not scraping infrastructure</div>
+              <h1>The data layer for the <em>open web.</em></h1>
+              <p>Turn scattered public websites into a reliable, source-backed API. Describe the records you need; WebForge handles discovery, extraction, and delivery.</p>
+              <div className="company-hero-actions">
+                <a className="company-button" href="#product">Create your API <span>→</span></a>
+                <Link className="company-text-link" href="/cli">Download the CLI <span>↗</span></Link>
+              </div>
+              <div className="company-hero-note"><span>✓</span> Approve the schema before extraction &nbsp;·&nbsp; No credit card required</div>
+            </div>
+
+            <div className="company-product-window" aria-label="WebForge product preview">
+              <div className="company-window-bar">
+                <div><i /><i /><i /></div><span>api.webforge.dev / courses</span><b>Live</b>
+              </div>
+              <div className="company-window-body">
+                <aside><strong>WebForge</strong><span className="active">Overview</span><span>Records</span><span>Sources</span><span>Runs</span><small>WF</small></aside>
+                <div className="company-window-main">
+                  <div className="company-window-title">
+                    <div><small>API / COURSES</small><h2>Waterloo CS courses</h2></div><button type="button">Run refresh</button>
+                  </div>
+                  <div className="company-metrics">
+                    <div><span>Records</span><strong>48</strong><small>+12 this run</small></div>
+                    <div><span>Sources</span><strong>16</strong><small>100% cited</small></div>
+                    <div><span>Status</span><strong className="company-status">Healthy</strong><small>Updated 2m ago</small></div>
+                  </div>
+                  <div className="company-endpoint">
+                    <div><span>GET</span><code>/api/jobs/courses/records</code><b>200 OK</b></div>
+                    <pre><code>{`[
+  {
+    "course": "CS 246",
+    "prerequisite": "CS 136",
+    "source_url": "uwaterloo.ca/..."
+  }
+]`}</code></pre>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
+        </section>
 
-          <aside className="forge-console" aria-label="Example WebForge run">
-            <div className="forge-console-bar"><span>RUN_0042.LOG</span><span>LIVE</span></div>
-            <div className="forge-console-body">
-              <p><b>00:00</b> request received</p><p><b>00:01</b> schema proposed <mark>5 fields</mark></p>
-              <p><b>00:03</b> operator approved</p><p><b>00:05</b> searching public web <mark>4 queries</mark></p>
-              <p><b>00:11</b> sources reviewed <mark>8 accepted</mark></p><p><b>00:19</b> records stored <mark>6 rows</mark></p>
+        <section className="company-affiliations" aria-label="Hackathon and founder affiliations">
+          <div className="company-container company-affiliations-inner">
+            <p>Built at and shaped by students from</p>
+            <div className="company-affiliation-list">
+              <a className="company-affiliation htn" href="https://hackthenorth.com/" target="_blank" rel="noreferrer"><span className="htn-cube" aria-hidden="true">H</span><strong>Hack the North</strong></a>
+              <a className="company-affiliation waterloo" href="https://uwaterloo.ca/" target="_blank" rel="noreferrer"><Image className="company-school-mark" src="/brand/university-of-waterloo.svg" width={44} height={44} alt="" /><strong>University of Waterloo</strong></a>
+              <a className="company-affiliation uoft" href="https://www.utoronto.ca/" target="_blank" rel="noreferrer"><Image className="company-school-mark company-school-mark-uoft" src="/brand/university-of-toronto.png" width={44} height={57} alt="" /><strong>University of Toronto</strong></a>
             </div>
-            <div className="forge-console-result"><span>GET</span><code>/api/jobs/0042/records</code><strong>200</strong></div>
-            <div className="forge-console-foot"><span>SEARCH 4/4</span><span>SCRAPE 6/6</span><span>SOURCED 100%</span></div>
-          </aside>
-        </section>
-
-        <div className="forge-tape" aria-hidden="true"><div>
-          <span>SCHEMA FIRST</span><i>◆</i><span>NO SILENT GAPS</span><i>◆</i><span>FIELD-LEVEL SOURCES</span><i>◆</i><span>BOUNDED CREDIT USE</span><i>◆</i>
-          <span>SCHEMA FIRST</span><i>◆</i><span>NO SILENT GAPS</span><i>◆</i><span>FIELD-LEVEL SOURCES</span><i>◆</i><span>BOUNDED CREDIT USE</span><i>◆</i>
-        </div></div>
-
-        <section id="workbench" className="forge-workbench" aria-labelledby="workbench-title">
-          <header className="forge-section-head">
-            <div><span>01 / WORKBENCH</span><span>REAL INPUT — NOT A MOCKUP</span></div>
-            <h2 id="workbench-title">Make the endpoint<br />you wish existed.</h2>
-          </header>
-          <HomeComposer />
-          <div className="forge-output-strip">
-            <div className="forge-output-label"><span>OUTPUT PREVIEW</span><strong>GET /records</strong><small>application/json</small></div>
-            <pre><code>{JSON.stringify([
-              { course: "CS 246", professor: "A. Instructor", rating: 4.7 },
-              { course: "CS 341", professor: "B. Instructor", rating: 4.4 },
-            ], null, 2)}</code></pre>
-            <div className="forge-output-proof"><p><b>✓</b> source_url on every row</p><p><b>✓</b> schema endpoint included</p><p><b>✓</b> refresh without replanning</p></div>
           </div>
         </section>
 
-        <section id="method" className="forge-method" aria-labelledby="method-title">
-          <header className="forge-section-head forge-section-head-dark">
-            <div><span>02 / METHOD</span><span>THREE MOVES</span></div><h2 id="method-title">From sentence to<br />software primitive.</h2>
-          </header>
-          <ol>{stages.map((stage) => <li key={stage.number}><span>{stage.number}</span><h3>{stage.title}</h3><p>{stage.body}</p></li>)}</ol>
-        </section>
-
-        <section id="specimens" className="forge-specimens" aria-labelledby="specimens-title">
-          <header className="forge-section-head">
-            <div><span>03 / SPECIMENS</span><span>REQUEST → RECORD</span></div><h2 id="specimens-title">Three things you could<br />ship this weekend.</h2>
-          </header>
-          <div className="forge-specimen-list">
-            {specimens.map((specimen) => <article key={specimen.id}>
-              <div className="forge-specimen-meta"><span>{specimen.id}</span><strong>{specimen.name}</strong></div>
-              <blockquote>“{specimen.prompt}”</blockquote><pre><code>{JSON.stringify(specimen.record, null, 2)}</code></pre>
-              <div className="forge-specimen-action"><code>GET {specimen.endpoint}</code><Link href={`/dashboard?request=${encodeURIComponent(specimen.prompt)}`}>USE THIS BRIEF →</Link></div>
-            </article>)}
+        <section id="product" className="company-builder">
+          <div className="company-container">
+            <div className="company-section-heading">
+              <span>Build your first endpoint</span><h2>Start with a question.<br />Leave with an API.</h2>
+              <p>This is the real builder—not a product mockup. Enter the dataset you want and WebForge will propose the fields for your approval.</p>
+            </div>
+            <div className="company-composer-shell"><HomeComposer /></div>
           </div>
         </section>
 
-        <section className="forge-principles" aria-labelledby="principles-title">
-          <div className="forge-principles-intro"><span>04 / RULES OF THE FORGE</span><h2 id="principles-title">Useful data<br />has receipts.</h2><p>A fast demo is good. A fast demo that can explain every value is better.</p></div>
-          <dl>{principles.map(([term, description], index) => <div key={term}><dt><span>0{index + 1}</span>{term}</dt><dd>{description}</dd></div>)}</dl>
+        <section id="platform" className="company-platform">
+          <div className="company-container">
+            <div className="company-section-heading company-section-heading-row">
+              <div><span>One workflow, end to end</span><h2>From request to reliable records.</h2></div>
+              <p>WebForge turns an ambiguous data request into a bounded, observable pipeline your team can understand.</p>
+            </div>
+            <ol className="company-workflow">
+              {workflow.map((item) => <li key={item.number}><span>{item.number}</span><h3>{item.title}</h3><p>{item.body}</p></li>)}
+            </ol>
+            <div className="company-capabilities">
+              {capabilities.map((item) => <article key={item.label}><span>{item.label}</span><h3>{item.title}</h3><p>{item.body}</p></article>)}
+            </div>
+
+            <section className="company-visual" aria-labelledby="visual-extraction-title">
+              <div className="company-visual-copy">
+                <span>Visual recovery layer</span>
+                <h2 id="visual-extraction-title">When the HTML lies, read the pixels.</h2>
+                <p>Obfuscated markup, canvas-rendered values, and anti-bot responses can leave a normal scraper with nothing useful. If the page is available in the browser, WebForge falls back to a rendered screenshot and extracts only what is visibly present.</p>
+                <div className="company-visual-route" aria-label="Visual extraction fallback sequence">
+                  <div><i className="failed" />DOM extraction<strong>Unusable</strong></div>
+                  <span aria-hidden="true">→</span>
+                  <div><i className="captured" />Screenshot<strong>Captured</strong></div>
+                  <span aria-hidden="true">→</span>
+                  <div><i className="verified" />Schema + evidence<strong>Verified</strong></div>
+                </div>
+                <small>Fallback only · Same field validation · No invented values</small>
+              </div>
+
+              <div className="company-visual-demo" aria-label="Example of a product page recovered through visual extraction">
+                <div className="company-visual-browser">
+                  <div className="company-visual-browser-bar"><div><i /><i /><i /></div><span>retailer.example / products / ssd</span><b>Rendered</b></div>
+                  <div className="company-retail-page">
+                    <div className="company-retail-search">Search&nbsp;&nbsp; <strong>SSD</strong></div>
+                    <div className="company-retail-product">
+                      <div className="company-drive-art"><span>990</span><b>PRO</b><small>2TB</small></div>
+                      <div className="company-retail-details"><span>High-performance storage</span><h3>990 PRO NVMe SSD</h3><p>PCIe 4.0 · 2 TB · In stock</p><strong>CAD $545.64</strong></div>
+                    </div>
+                    <div className="company-html-failure"><span>×</span><div><b>Markup extraction failed</b><small>Obfuscated product nodes · price missing</small></div></div>
+                    <div className="company-vision-scan" aria-hidden="true"><i /><span>VISION FALLBACK</span></div>
+                  </div>
+                </div>
+                <div className="company-visual-result">
+                  <div><span>VISUAL RECORD</span><b><i /> recovered</b></div>
+                  <pre><code>{`{
+  "product": "990 PRO NVMe SSD",
+  "capacity": "2 TB",
+  "price_cad": 545.64,
+  "availability": "In stock",
+  "extraction_mode": "vision"
+}`}</code></pre>
+                  <p><span>4/4</span> requested fields visible and schema-valid</p>
+                </div>
+              </div>
+            </section>
+          </div>
         </section>
 
-        <section className="forge-cli" aria-labelledby="cli-title">
-          <div className="forge-cli-copy"><p>05 / TERMINAL EDITION</p><h2 id="cli-title">Stay in the flow.</h2><span>One dependency-free file. Same jobs, records, depth controls, and sources as the web app.</span><Link href="/cli">DOWNLOAD CLI →</Link></div>
-          <pre aria-label="WebForge CLI example"><code><b>$</b> node webforge-cli.mjs create --wait{"\n"}{"\n"}<i>?</i> What data do you need?{"\n"}<strong>› Upcoming climate-tech grants</strong>{"\n"}{"\n"}<i>✓</i> 6 fields approved{"\n"}<i>✓</i> 12 records stored{"\n"}<i>✓</i> API ready</code></pre>
+        <section className="company-cli" aria-labelledby="company-cli-title">
+          <div className="company-container company-cli-grid">
+            <div>
+              <span className="company-kicker">WebForge for the terminal</span><h2 id="company-cli-title">The same data pipeline, without leaving VS Code.</h2>
+              <p>Download one dependency-free file to create jobs, choose depth, watch runs, and pull records from your terminal.</p>
+              <Link className="company-button company-button-light" href="/cli">Get the CLI <span>→</span></Link>
+            </div>
+            <div className="company-terminal">
+              <div><span>webforge — powershell</span><i>●</i></div>
+              <pre><code><b>$</b> node webforge-cli.mjs create --wait{"\n\n"}<span>?</span> What data do you need?{"\n"}<strong>› Waterloo CS courses and prerequisites</strong>{"\n\n"}<span>✓</span> Schema approved: 5 fields{"\n"}<span>✓</span> Balanced search: 12 records{"\n"}<span>✓</span> Endpoint ready{"\n\n"}<em>GET /api/jobs/courses/records</em></code></pre>
+            </div>
+          </div>
         </section>
 
-        <section className="forge-faq" aria-labelledby="faq-title">
-          <div><span>06 / STRAIGHT ANSWERS</span><h2 id="faq-title">Before you forge.</h2></div>
-          <div>{faqs.map(([question, answer], index) => <details key={question} open={index === 0}><summary>{question}<span>+</span></summary><p>{answer}</p></details>)}</div>
+        <section id="company" className="company-founders">
+          <div className="company-container company-founders-grid">
+            <div className="company-founders-copy">
+              <span>Meet the founders</span><h2>Built by students who were tired of rebuilding scrapers.</h2>
+              <p>WebForge started from a simple frustration: useful public data is everywhere, but turning it into dependable software still takes too much time.</p>
+            </div>
+            <div className="company-founder-list">
+              {founders.map((founder) => <article key={founder.name}><div className={`company-founder-avatar ${founder.tone}`}>{founder.initials}</div><div><h3>{founder.name}</h3><p>{founder.program}</p><span>{founder.school}</span></div></article>)}
+            </div>
+          </div>
         </section>
 
-        <section className="forge-final" aria-label="Get started"><span>YOUR IDEA NEEDS DATA.</span><h2>Stop hunting pages.<br /><em>Start calling an API.</em></h2><div><a href="#workbench">FORGE IT NOW ↓</a><Link href="/dashboard">OPEN DASHBOARD ↗</Link></div></section>
+        <section className="company-final">
+          <div className="company-container company-final-inner">
+            <div><span>Build with live data</span><h2>Your next product should call an API, not chase a website.</h2></div>
+            <div><a className="company-button company-button-light" href="#product">Create your API <span>→</span></a><Link href="/dashboard">Open dashboard</Link></div>
+          </div>
+        </section>
       </main>
 
-      <footer className="forge-footer">
-        <Link className="forge-wordmark" href="/"><span>WF</span><strong>WEBFORGE</strong></Link><p>Public web data with a paper trail.</p>
-        <div><Link href="/dashboard">APP</Link><Link href="/cli">CLI</Link><a href="#workbench">CREATE</a></div><small>BUILD 2026.09</small>
+      <footer className="company-footer">
+        <div className="company-container">
+          <div className="company-footer-top">
+            <Link className="company-brand" href="/"><span className="company-brand-mark" aria-hidden="true"><i /><i /><i /></span><strong>WebForge</strong></Link>
+            <div><Link href="/dashboard">Dashboard</Link><Link href="/cli">CLI</Link><a href="#product">Create API</a></div>
+          </div>
+          <div className="company-footer-bottom">
+            <p>Hack the North and university names indicate event participation and founder affiliations. No institutional endorsement is implied.</p><span>© 2026 WebForge</span>
+          </div>
+        </div>
       </footer>
     </div>
   );
