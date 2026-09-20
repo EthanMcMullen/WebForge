@@ -391,7 +391,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
 
   if (accessState !== "unlocked") return (
     <main className="access-screen"><section className="access-card panel">
-      <div className="brand-mark">W</div>
+      <div className="brand-mark">WF</div>
       <h1>{accessState === "checking" ? "Opening workspace" : accessState === "missing" ? "Workspace access needs setup" : "Unlock WebForge"}</h1>
       {accessState === "locked" ? <form onSubmit={(event) => { event.preventDefault(); void unlockWorkspace(); }}>
         <label className="input-label" htmlFor="access-token">Access token</label>
@@ -405,7 +405,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
   return (
     <div className="shell">
       <aside className="sidebar">
-        <Link className="brand brand-button" href="/"><div className="brand-mark">W</div><div><strong>WebForge</strong><span>API workbench</span></div></Link>
+        <Link className="brand brand-button" href="/"><div className="brand-mark">WF</div><div><strong>WebForge</strong><span>API workbench</span></div></Link>
         <div className="sidebar-section-label">Workspace</div>
         <button className={`nav-item ${view === "dashboard" ? "active" : ""}`} onClick={() => { setSelectedId(null); setView("dashboard"); }}><span className="nav-icon">D</span> Dashboard</button>
         <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => setView("library")}><span className="nav-icon">L</span> Library</button>

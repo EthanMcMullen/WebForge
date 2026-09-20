@@ -89,7 +89,8 @@ a { color: inherit; }
   border-radius: 3px;
   display: grid;
   place-items: center;
-  font-size: 18px;
+  font: 700 10px/1 var(--font-code);
+  letter-spacing: -0.04em;
   font-weight: 700;
   color: #ffffff;
   background: var(--accent);
@@ -1137,11 +1138,7 @@ td a { color: var(--accent); }
 .company-nav-inner { min-height: 72px; display: flex; align-items: center; gap: 48px; }
 .company-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
 .company-brand strong { font-size: 19px; letter-spacing: -0.04em; }
-.company-brand-mark { width: 31px; height: 31px; position: relative; display: flex; align-items: flex-end; gap: 3px; padding: 6px; border-radius: 8px; background: var(--company-blue); box-shadow: 0 5px 14px rgba(49, 92, 253, 0.22); }
-.company-brand-mark i { width: 5px; display: block; border-radius: 2px 2px 1px 1px; background: #fff; transform: skewY(-20deg); }
-.company-brand-mark i:nth-child(1) { height: 9px; opacity: 0.7; }
-.company-brand-mark i:nth-child(2) { height: 14px; opacity: 0.85; }
-.company-brand-mark i:nth-child(3) { height: 19px; }
+.company-brand-mark { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 6px; color: #fff; background: var(--company-blue); box-shadow: 0 5px 14px rgba(49, 92, 253, 0.22); font: 700 9px/1 var(--font-code); letter-spacing: -0.04em; }
 .company-nav nav { display: flex; align-items: center; gap: 30px; }
 .company-nav nav a, .company-login { text-decoration: none; color: #4e5a6c; font-size: 13px; font-weight: 600; }
 .company-nav nav a:hover, .company-login:hover { color: var(--company-blue); }

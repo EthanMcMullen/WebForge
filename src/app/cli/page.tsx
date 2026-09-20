@@ -19,7 +19,7 @@ const commands = [
 export default function CliDownloadPage() {
   return <main className="cli-page">
     <nav className="cli-nav" aria-label="CLI page navigation">
-      <Link href="/" className="cli-brand"><span className="brand-mark">W</span><strong>WebForge</strong></Link>
+      <Link href="/" className="cli-brand"><span className="brand-mark">WF</span><strong>WebForge</strong></Link>
       <Link href="/">Back to workspace</Link>
     </nav>
 

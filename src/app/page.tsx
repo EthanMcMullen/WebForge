@@ -34,7 +34,7 @@ export default function HomePage() {
       <header className="company-nav">
         <div className="company-container company-nav-inner">
           <Link className="company-brand" href="/" aria-label="WebForge home">
-            <span className="company-brand-mark" aria-hidden="true"><i /><i /><i /></span>
+            <span className="company-brand-mark" aria-hidden="true">WF</span>
             <strong>WebForge</strong>
           </Link>
           <nav aria-label="Primary navigation">
@@ -211,7 +211,7 @@ export default function HomePage() {
       <footer className="company-footer">
         <div className="company-container">
           <div className="company-footer-top">
-            <Link className="company-brand" href="/"><span className="company-brand-mark" aria-hidden="true"><i /><i /><i /></span><strong>WebForge</strong></Link>
+            <Link className="company-brand" href="/"><span className="company-brand-mark" aria-hidden="true">WF</span><strong>WebForge</strong></Link>
             <div><Link href="/dashboard">Dashboard</Link><Link href="/cli">CLI</Link><a href="#product">Create API</a></div>
           </div>
           <div className="company-footer-bottom">
