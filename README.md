@@ -23,7 +23,7 @@ In another terminal:
 npm run worker
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Enter a request such as “Create an API with the title, author, and publication date of recent articles about battery recycling.” Choose automatic discovery and a search depth, or supply up to five public page URLs. Click **Propose fields**, choose the fields you want in the JSON API, then click **Build API**. Firecrawl runs only after confirmation.
+Open [http://localhost:3000](http://localhost:3000). Enter a request such as “Create an API with the title, author, and publication date of recent articles about battery recycling.” Choose automatic discovery and a search depth, or supply up to five public page URLs. Click **Propose fields**, review the planned searches and fields, choose the fields you want in the JSON API, then click **Build API**. Firecrawl runs only after confirmation. Broad requests for multiple items are planned as separate records rather than one combined record; the planner rejects placeholder search terms before discovery.
 
 Automatic discovery offers three loose record targets: **Focused** uses up to two searches and three scrapes, **Balanced** (the default) uses up to four searches and six scrapes, and **Deep** uses up to five searches and twelve scrapes. These are ceilings rather than promised record counts. Runs stop early when enough data is found, and you can change the depth later in API Settings before a refresh.
 

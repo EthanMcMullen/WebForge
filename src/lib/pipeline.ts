@@ -35,7 +35,7 @@ export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
     const plan = await planApiJob(job.userRequest, Boolean(job.combineSources));
     job.name = input.name || plan.name;
     job.proposedSchema = plan.schema;
-    job.combineSources = Boolean(job.combineSources || plan.combineSources);
+    job.combineSources = plan.combineSources;
     if (job.sourceStrategy.type === "automatic") job.sourceStrategy.searchQueries = plan.searchQueries;
     job.status = "awaiting_fields";
   } catch (error) {

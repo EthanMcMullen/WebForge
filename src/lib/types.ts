@@ -38,7 +38,7 @@ export interface ApiJobResponse {
     started_at: string; finished_at: string | null; id: string; trigger: "manual" | "scheduled"; cancel_requested: boolean;
   } | null;
 }
-export interface ApiPlan { name: string; schema: ApiRecordSchema; searchQueries: string[]; combineSources: boolean; }
+export interface ApiPlan { name: string; schema: ApiRecordSchema; searchQueries: string[]; combineSources: boolean; recordScope: "single" | "collection"; }
 export type ApiRecordData = Record<string, string | number | boolean | null>;
 export interface ApiRecord {
   id: string; jobId: string; sourceUrl: string; data: ApiRecordData; extractedAt: string;

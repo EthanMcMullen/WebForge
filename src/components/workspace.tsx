@@ -553,6 +553,7 @@ export function Workspace() {
               <h2>Choose fields</h2>
               <p>Confirm what belongs in the JSON. Extraction starts only after you build.</p>
               {selected.combine_sources && <p className="empty-records">These fields will be combined into one record from multiple pages about the same item.</p>}
+              {selected.source_strategy.type === "automatic" && <div className="planned-searches"><h3>Planned searches</h3><p>Review these before starting Firecrawl.</p><ol>{selected.source_strategy.search_queries.map((query) => <li key={query}>{query}</li>)}</ol></div>}
               <div className="field-options">
                 {Object.entries(selected.proposed_schema).filter(([key]) => key !== "source_url").map(([key, field]) => (
                   <label className="field-option" key={key}>
