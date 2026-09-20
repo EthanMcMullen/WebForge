@@ -11,6 +11,9 @@ const commands = [
   ["Choose a depth", 'node webforge-cli.mjs create --request "List recent battery recycling articles" --depth balanced --wait'],
   ["List APIs", "node webforge-cli.mjs list"],
   ["Export records", "node webforge-cli.mjs records <job-id> --json"],
+  ["Refresh now", "node webforge-cli.mjs refresh <job-id> --wait"],
+  ["Schedule hourly", "node webforge-cli.mjs schedule <job-id> --every 60"],
+  ["Return to manual", "node webforge-cli.mjs schedule <job-id> --manual"],
 ];
 
 export default function CliDownloadPage() {

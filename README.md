@@ -55,6 +55,10 @@ webforge list
 webforge status <job-id>
 webforge records <job-id>
 webforge refresh <job-id> --wait
+webforge schedule <job-id> --every 60
+webforge schedule <job-id> --pause
+webforge schedule <job-id> --resume
+webforge schedule <job-id> --manual
 ```
 
 Use `webforge help` for every option. `WEBFORGE_BASE_URL` defaults to `http://localhost:3000`. If shared access is enabled, the CLI reads `WEBFORGE_ACCESS_TOKEN` from `.env.local` and sends it as a bearer token. No VS Code extension is required; the command runs directly in its integrated terminal.
@@ -72,6 +76,7 @@ Local development runs without an access token unless you configure one. Product
 | POST | `/api/jobs` | Plans a draft job with OpenAI; no Firecrawl call |
 | PATCH | `/api/jobs/:id/fields` | Confirms selected fields before extraction |
 | GET | `/api/jobs/:id` | Returns job status and confirmed schema |
+| PATCH | `/api/jobs/:id` | Updates name, depth, refresh interval, or paused state |
 | GET | `/api/jobs/:id/schema` | Returns the record schema |
 | POST | `/api/jobs/:id/run` | Queues discovery and extraction; returns 202 |
 | POST | `/api/jobs/:id/refresh` | Queues another run; returns 202 |
@@ -121,7 +126,7 @@ A records response has `job_id`, `status`, `count`, and `records`. Each record i
 - By default one source page produces one record. Combined mode targets one entity and produces one record from up to twelve discovered pages, or up to five URLs supplied directly by the user. Broad list pages may not yield every item on the page.
 - Automatic runs use their selected depth ceiling: Focused allows two planned searches and three structured scrapes, Balanced allows four and six, and Deep allows five and twelve. Each mode reserves room for at most one recovery search. Every run also allows one OpenAI recovery decision, two vision fallbacks, five source failures, and four minutes. Search candidates are reviewed by OpenAI before scraping. Candidates are tried round-robin across planned searches, and combined-source runs stop early once every requested field is populated. Incomplete subjects are reported as partial results. These are per-run limits; there is no daily credit cap. Firecrawl's structured JSON extraction can cost more than a basic scrape, so check your Firecrawl dashboard for actual credits used.
 - Known unsupported social domains are skipped before scraping. Firecrawl errors are classified, and an automatic job can ask OpenAI for one alternate search query when candidate pages run out. Provided URL jobs do not switch sources. Source review and numeric-price evidence checks reduce mismatches, but other extracted fields are not independently fact checked.
-- A configured `refresh_interval` schedules refreshes while the worker runs. Refreshes reuse the confirmed schema and source strategy. A job pauses scheduled refreshes after two runs that make no usable progress; saving its settings resumes the schedule. Run history and the paused state appear in the UI.
+- Manual refresh queues a run only when requested. A configured `refresh_interval` enables automatic refresh while the worker runs; refreshes reuse the confirmed schema and source strategy. The dashboard and CLI can pause, resume, change, or remove a schedule without deleting the API. A job also pauses scheduled refreshes after two runs that make no usable progress. Run history records whether each run was manual or scheduled.
 - Fields visible only in product images, OCR, login-only pages, and private pages are outside this version, except for the bounded vision fallback above, which reads rendered page screenshots when text scraping fails.
 - Automatic discovery checks whether search results match the request before scraping. Extracted records get a separate relevance check. If discovery finds no usable pages and detects a likely source-name typo, WebForge suggests the correction without changing the original request. For numeric prices, extraction also checks that the price appears next to the matching item in the page text. If a product page lacks its own price but a linked category card shows it, one bounded category-page fallback may supply the record.
 - The extraction provider is behind `ExtractionProvider` in `src/lib/providers/firecrawl.ts`, so a later local Qwen provider can return the same record shape.

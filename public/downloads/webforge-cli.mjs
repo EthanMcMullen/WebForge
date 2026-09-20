@@ -49,6 +49,14 @@ export function parseFieldSelection(value, available) {
   return unique;
 }
 
+export function parseRefreshInterval(value) {
+  const interval = Number(value);
+  if (!Number.isInteger(interval) || interval < 15 || interval > 525_600) {
+    throw new Error("Refresh interval must be a whole number from 15 to 525600 minutes.");
+  }
+  return interval;
+}
+
 function help() {
   return `WebForge CLI
 
@@ -59,6 +67,8 @@ ${fullInstall ? "  webforge serve\n" : ""}  webforge create [options]
   webforge records <job-id> [--json]
   webforge run <job-id> [--wait]
   webforge refresh <job-id> [--wait]
+  webforge schedule <job-id> --every <minutes>
+  webforge schedule <job-id> --manual|--pause|--resume
   webforge cancel <job-id>
 
 Create options:
@@ -69,6 +79,7 @@ Create options:
   --url https://...          Use a supplied URL; repeat up to five times
   --fields title,date        Fields to confirm; names or 1-based numbers
   --no-run                   Plan and confirm without queuing extraction
+  --refresh <minutes>        Enable automatic refresh (minimum 15 minutes)
   --wait                     Wait for extraction and print records
   --json                     Print machine-readable JSON
 
@@ -129,6 +140,9 @@ function printJobs(jobs) {
 function printJob(job) {
   console.log(`${job.name} (${job.id})`);
   console.log(`Status: ${job.status} | Depth: ${job.search_depth} | Records: ${job.record_count}`);
+  console.log(job.refresh_interval
+    ? `Refresh: every ${job.refresh_interval}m${job.refresh_paused ? " (paused)" : job.next_refresh_at ? ` | Next: ${new Date(job.next_refresh_at).toLocaleString()}` : ""}`
+    : "Refresh: manual");
   if (job.error) console.log(`Warning: ${job.error}`);
   if (job.run_summary) console.log(`Latest run: ${job.run_summary.search_calls} searches, ${job.run_summary.scrape_calls} scrapes, ${job.run_summary.saved_records} saved`);
 }
@@ -148,7 +162,7 @@ async function create(request, options) {
     sources: urls,
     combine_sources: Boolean(options.combine),
     search_depth: depth,
-    refresh_interval: null,
+    refresh_interval: options.refresh === undefined ? null : parseRefreshInterval(options.refresh),
   };
   const planned = await request("/api/jobs", { method: "POST", body: JSON.stringify(body) });
   const job = planned.job;
@@ -183,6 +197,18 @@ async function mutate(request, command, id, options) {
     const records = await request(`/api/jobs/${encodeURIComponent(id)}/records`);
     output(options.json ? { job, ...records } : records, Boolean(options.json));
   } else output(result, Boolean(options.json));
+}
+
+async function schedule(request, id, options) {
+  const choices = [options.every !== undefined, Boolean(options.manual), Boolean(options.pause), Boolean(options.resume)].filter(Boolean).length;
+  if (choices !== 1) throw new Error("Choose exactly one of --every <minutes>, --manual, --pause, or --resume.");
+  const body = options.every !== undefined
+    ? { refresh_interval: parseRefreshInterval(options.every), refresh_paused: false }
+    : options.manual
+      ? { refresh_interval: null, refresh_paused: false }
+      : { refresh_paused: Boolean(options.pause) };
+  const result = await request(`/api/jobs/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) });
+  return options.json ? output(result, true) : printJob(result.job);
 }
 
 async function serve() {
@@ -239,6 +265,7 @@ export async function main(argv = process.argv.slice(2)) {
     const result = await request(`/api/jobs/${encodeURIComponent(id)}/records`);
     return output(result, Boolean(options.json));
   }
+  if (command === "schedule") return schedule(request, id, options);
   if (["run", "refresh", "cancel"].includes(command)) return mutate(request, command, id, options);
   throw new Error(`Unknown command "${command}". Run "webforge help".`);
 }

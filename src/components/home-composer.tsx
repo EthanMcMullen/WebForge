@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { RefreshScheduleEditor } from "@/components/refresh-schedule-editor";
 
 export const homeIdeas = [
   "Track espresso machine prices across three retailers",
@@ -146,10 +147,7 @@ export function HomeComposer() {
         <input type="checkbox" checked={combineSources} onChange={(event) => setCombineSources(event.target.checked)} />
         <span><strong>Combine sources into one record</strong><small>Use multiple pages for one item, such as Apple specs and an independent benchmark.</small></span>
       </label>
-      <div className="interval-row">
-        <label className="input-label" htmlFor="site-interval">Refresh<span>Minutes, or blank for manual</span></label>
-        <input id="site-interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" />
-      </div>
+      <RefreshScheduleEditor id="site-interval" value={refreshInterval} onChange={setRefreshInterval} />
       <div className="example-row">
         <span>Try:</span>
         {homeQuickStarts.map((item) => (
