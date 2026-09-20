@@ -651,9 +651,21 @@ td a { color: var(--accent); }
 .site-how .how-step strong { display: block; font-size: 14px; }
 .site-section-cta { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
 .site-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
-.site-card { padding: 18px; display: grid; gap: 10px; align-content: start; }
+.site-card { min-width: 0; padding: 18px; display: grid; gap: 10px; align-content: start; overflow: hidden; }
 .site-card-request { font-size: 13px; line-height: 1.6; color: var(--text); margin: 0; }
 .site-card .text-button { justify-self: start; padding-left: 0; }
+.site-pattern-json {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  max-height: none;
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+.site-pattern-json code { font: inherit; }
 .site-features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 18px; border: 1px solid var(--line-soft); border-radius: 3px; background: #fff; overflow: hidden; }
 .site-feature { padding: 16px 18px; border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
 .site-feature:nth-child(3n) { border-right: 0; }
@@ -804,6 +816,13 @@ td a { color: var(--accent); }
 /* Example cards: endpoint proof pinned to foot */
 .site-card-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 2px; }
 
+.site-cli-banner { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px; border-left: 3px solid var(--accent); }
+.site-cli-banner h2 { margin: 6px 0 0; font-size: clamp(20px, 2.2vw, 27px); letter-spacing: -0.025em; }
+.site-cli-banner p:not(.section-kicker) { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.site-cli-banner-action { display: flex; align-items: center; gap: 12px; flex: none; }
+.site-cli-banner-action code { padding: 10px 12px; border: 1px solid var(--line-soft); background: #f4f3ed; font: 10.5px/1.5 var(--font-code); white-space: nowrap; }
+.site-cli-banner-action .primary-button { text-decoration: none; white-space: nowrap; }
+
 /* Stats band: single ruled row */
 .site-stats-band { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: hidden; }
 .site-stats-band > div { padding: 18px 20px; border-right: 1px solid var(--line-soft); }
@@ -842,6 +861,10 @@ td a { color: var(--accent); }
   .site-stats-band > div:last-child { border-bottom: 0; }
   .site-cta-actions { width: 100%; }
   .site-cta-actions a { width: 100%; }
+  .site-cli-banner { align-items: stretch; flex-direction: column; }
+  .site-cli-banner-action { align-items: stretch; flex-direction: column; }
+  .site-cli-banner-action code { overflow-x: auto; white-space: nowrap; }
+  .site-cli-banner-action .primary-button { text-align: center; }
 }
 @media (prefers-reduced-motion: reduce) {
   .site-marquee-track { animation: none; }

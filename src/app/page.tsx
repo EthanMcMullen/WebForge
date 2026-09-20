@@ -12,28 +12,28 @@ const examples = [
   {
     label: "Price tracker",
     request: "Track espresso machine prices across three retailers with product name, price, and availability.",
-    output: `[
-  { "product": "Entry espresso machine", "price": 449.0, "availability": "In stock" },
-  { "product": "Compact grinder", "price": 129.0, "availability": "Low stock" }
-]`,
+    records: [
+      { product: "Entry espresso machine", price: 449.0, availability: "In stock" },
+      { product: "Compact grinder", price: 129.0, availability: "Low stock" },
+    ],
     endpoint: "GET /records → 48 rows",
   },
   {
     label: "Event directory",
     request: "List upcoming hackathons with event name, date, and location.",
-    output: `[
-  { "event": "Harbor Hackathon", "date": "Jun 12", "location": "Boston" },
-  { "event": "Civic Data Summit", "date": "Jul 18", "location": "Chicago" }
-]`,
+    records: [
+      { event: "Harbor Hackathon", date: "Jun 12", location: "Boston" },
+      { event: "Civic Data Summit", date: "Jul 18", location: "Chicago" },
+    ],
     endpoint: "GET /records → 86 rows",
   },
   {
     label: "Menu monitor",
     request: "Monitor new menu items at downtown ramen spots with dish name, price, and dietary tags.",
-    output: `[
-  { "dish": "Shoyu ramen", "price": 14.5, "tags": "Vegetarian option" },
-  { "dish": "Miso eggplant", "price": 11.0, "tags": "Vegan" }
-]`,
+    records: [
+      { dish: "Shoyu ramen", price: 14.5, tags: "Vegetarian option" },
+      { dish: "Miso eggplant", price: 11.0, tags: "Vegan" },
+    ],
     endpoint: "GET /records → 412 rows",
   },
 ];
@@ -48,14 +48,14 @@ const features = [
   { title: "Guarded discovery", body: "Search candidates are reviewed before scraping. Unsupported, sparse, or off-topic pages are skipped — missing subjects surface as Partial data, not silent gaps.", tag: "Trust", large: true },
   { title: "Evidence-checked prices", body: "Numeric prices must appear next to the matching item in page text. Unrelated recommendation prices are rejected.", tag: "Accuracy", large: false },
   { title: "Source provenance", body: "Every record keeps source_url, per-field sources, run counts, and history. Audit where each value came from.", tag: "Audit", large: false },
-  { title: "Bounded runs", body: "Per-run ceilings on searches, scrapes, recovery, and time. Queued in SQLite with cancellation, retries, and scheduled refresh.", tag: "Control", large: false },
+  { title: "Bounded runs", body: "Per-run ceilings on searches, scrapes, recovery, and time. Queued in MongoDB with cancellation, retries, and scheduled refresh.", tag: "Control", large: false },
   { title: "Combine mode", body: "Merge complementary pages about one item — e.g. specs from Apple plus a benchmark score — into a single record.", tag: "Merge", large: true },
   { title: "Copyable endpoints", body: "GET /records, /schema, and /jobs per API. Stable shapes your frontend can depend on.", tag: "DX", large: false },
 ];
 
 const trustStats = [
   { k: "5", v: "searches max / run" },
-  { k: "5", v: "structured scrapes / run" },
+  { k: "3–12", v: "structured scrapes / run" },
   { k: "4 min", v: "bounded run ceiling" },
   { k: "100%", v: "records carry sources" },
 ];
@@ -93,6 +93,7 @@ export default function HomePage() {
           <a href="#examples">Examples</a>
           <a href="#features">Features</a>
           <a href="#faq">FAQ</a>
+          <Link href="/cli">CLI</Link>
         </nav>
         <div className="site-nav-cta">
           <a className="ghost-button" href="/dashboard">Open dashboard</a>
@@ -207,13 +208,25 @@ export default function HomePage() {
               <article key={example.label} className="panel site-card">
                 <p className="section-kicker">{example.label}</p>
                 <p className="site-card-request">“{example.request}”</p>
-                <pre className="schema-preview">{example.output}</pre>
+                <pre className="schema-preview site-pattern-json"><code>{JSON.stringify(example.records, null, 2)}</code></pre>
                 <div className="site-card-foot">
                   <span className="status-pill sample">{example.endpoint}</span>
                   <a className="text-button" href={`/dashboard?request=${encodeURIComponent(example.request)}`}>Use this pattern →</a>
                 </div>
               </article>
             ))}
+          </div>
+        </section>
+
+        <section className="site-cli-banner panel" aria-label="WebForge CLI download">
+          <div>
+            <p className="section-kicker">CLI edition</p>
+            <h2>Forge APIs from your VS Code terminal.</h2>
+            <p>Download one dependency-free Node file and connect it to the same WebForge service.</p>
+          </div>
+          <div className="site-cli-banner-action">
+            <code>node webforge-cli.mjs create --wait</code>
+            <Link className="primary-button" href="/cli">Download the CLI</Link>
           </div>
         </section>
 
@@ -248,6 +261,7 @@ export default function HomePage() {
           </div>
           <div className="site-section-cta site-cta-actions">
             <a className="primary-button" href="#create">Forge an API</a>
+            <Link className="ghost-button" href="/cli">Download CLI</Link>
             <a className="ghost-button" href="/dashboard">View dashboard</a>
           </div>
         </section>
@@ -255,7 +269,7 @@ export default function HomePage() {
 
       <footer className="site-footer">
         <span><strong>WebForge</strong> · Describe data. Get an API.</span>
-        <span><a href="/dashboard">Dashboard</a> · <a href="#how">How it works</a> · <a href="#features">Features</a> · <a href="#faq">FAQ</a></span>
+        <span><a href="/dashboard">Dashboard</a> · <Link href="/cli">CLI download</Link> · <a href="#how">How it works</a> · <a href="#features">Features</a> · <a href="#faq">FAQ</a></span>
       </footer>
     </div>
   );

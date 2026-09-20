@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiJobResponse, SearchDepth, SourceStrategyType } from "@/lib/types";
+import type { WorkspaceHandoff } from "@/lib/workspace-handoff";
 
 type Config = { planner_ready: boolean; extraction_ready: boolean; database_ready: boolean; vision_ready?: boolean; worker_online?: boolean; worker_seen_at?: string | null; missing: string[] };
 type ApiRecordResponse = { id: string; job_id: string; source_url: string; source_urls: string[];
@@ -31,28 +32,6 @@ const quickStarts = [
 
 type WorkspaceView = "dashboard" | "new" | "library" | "detail";
 
-function readIncomingRequest(): string | null {
-  if (typeof window === "undefined") return null;
-  const incoming = new URLSearchParams(window.location.search).get("request")?.trim();
-  return incoming ? incoming : null;
-}
-
-type Handoff = { name: string; strategy: SourceStrategyType; combine: boolean; sources: string; refresh: string };
-
-function readHandoff(): Handoff {
-  const fallback: Handoff = { name: "", strategy: "automatic", sources: "", refresh: "", combine: false };
-  if (typeof window === "undefined") return fallback;
-  const params = new URLSearchParams(window.location.search);
-  const strategyParam = params.get("strategy");
-  return {
-    name: params.get("name")?.slice(0, 120) ?? "",
-    strategy: strategyParam === "provided_urls" ? "provided_urls" : "automatic",
-    combine: params.get("combine") === "1",
-    sources: params.get("sources")?.slice(0, 2000) ?? "",
-    refresh: params.get("refresh")?.replace(/[^0-9]/g, "").slice(0, 5) ?? "",
-  };
-}
-
 const searchDepthOptions: Array<{
   value: SearchDepth;
   label: string;
@@ -65,10 +44,10 @@ const searchDepthOptions: Array<{
   { value: "deep", label: "Deep", range: "Up to 12 records", combinedRange: "Up to 12 source pages", hint: "5 searches · 12 scrapes max" },
 ];
 
-export function Workspace() {
+export function Workspace({ initialHandoff = null }: { initialHandoff?: WorkspaceHandoff | null }) {
   const [jobs, setJobs] = useState<ApiJobResponse[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [view, setView] = useState<WorkspaceView>(() => (readIncomingRequest() ? "new" : "dashboard"));
+  const [view, setView] = useState<WorkspaceView>(initialHandoff ? "new" : "dashboard");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [apiSettingsOpen, setApiSettingsOpen] = useState(false);
   const [apiSettingsJobId, setApiSettingsJobId] = useState<string | null>(null);
@@ -83,13 +62,13 @@ export function Workspace() {
   const [config, setConfig] = useState<Config | null>(null);
   const [records, setRecords] = useState<ApiRecordResponse[]>([]);
   const [runs, setRuns] = useState<RunHistory[]>([]);
-  const [name, setName] = useState<string>(() => readHandoff().name);
-  const [userRequest, setUserRequest] = useState<string>(() => readIncomingRequest() ?? "");
-  const [strategy, setStrategy] = useState<SourceStrategyType>(() => readHandoff().strategy);
+  const [name, setName] = useState(initialHandoff?.name ?? "");
+  const [userRequest, setUserRequest] = useState(initialHandoff?.request ?? "");
+  const [strategy, setStrategy] = useState<SourceStrategyType>(initialHandoff?.strategy ?? "automatic");
   const [searchDepth, setSearchDepth] = useState<SearchDepth>("balanced");
-  const [combineSources, setCombineSources] = useState<boolean>(() => readHandoff().combine);
-  const [sourceText, setSourceText] = useState<string>(() => readHandoff().sources);
-  const [refreshInterval, setRefreshInterval] = useState<string>(() => readHandoff().refresh);
+  const [combineSources, setCombineSources] = useState(initialHandoff?.combine ?? false);
+  const [sourceText, setSourceText] = useState(initialHandoff?.sources ?? "");
+  const [refreshInterval, setRefreshInterval] = useState(initialHandoff?.refresh ?? "");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [fieldSelections, setFieldSelections] = useState<Record<string, string[]>>({});
@@ -202,12 +181,11 @@ export function Workspace() {
     };
   }, [accessState, loadJobs]);
 
-  // Clear ?request= from the marketing homepage hero after picking it up above.
+  // The server already applied the handoff; keep the workspace URL clean afterward.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!new URLSearchParams(window.location.search).get("request")) return;
+    if (!initialHandoff || typeof window === "undefined") return;
     window.history.replaceState(null, "", window.location.pathname);
-  }, []);
+  }, [initialHandoff]);
 
   function startQuickStart(request: string) {
     setUserRequest(request);
