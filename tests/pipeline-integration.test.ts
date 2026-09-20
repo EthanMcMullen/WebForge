@@ -102,6 +102,79 @@ test("collection members found on multiple pages are deduplicated", async () => 
   assert.equal(latest?.savedRecords, 2);
 });
 
+test("collection pages fill missing fields without erasing verified values", async () => {
+  const api = job("automatic", "List ECE 1A courses with prerequisites");
+  api.recordScope = "collection";
+  api.schema = { course_code: { type: "string" }, course_title: { type: "string" },
+    prerequisites: { type: "string" }, source_url: { type: "string" } };
+  await store.saveApiJob(api);
+  const first = "https://example.edu/category/courses";
+  const second = "https://example.edu/engineering/courses";
+  const result = await runApiJob(api.id, {
+    async discover() { return [{ url: first }, { url: second }]; },
+    async extract() { throw new Error("Use collection extraction"); },
+    async extractCollection(url) { return url === first ? [
+      { data: { course_code: "ECE 105", course_title: "Classical Mechanics", prerequisites: null, source_url: url }, identity: "ECE 105" },
+    ] : [
+      { data: { course_code: "ECE 105", course_title: null, prerequisites: "Level 1A Engineering", source_url: url }, identity: "ECE 105" },
+    ]; },
+  }, async () => ({ action: "stop", query: null }), async (_request, candidates) => candidates,
+  undefined, async () => true, async () => null);
+  const [record] = await store.listApiRecords(api.id);
+  assert.equal(result.status, "ready");
+  assert.equal(record.data.course_title, "Classical Mechanics");
+  assert.equal(record.data.prerequisites, "Level 1A Engineering");
+  assert.equal(record.fieldSources?.course_title, first);
+  assert.equal(record.fieldSources?.prerequisites, second);
+  assert.equal(record.sourceUrls?.length, 2);
+});
+
+test("collection run with missing requested fields is partial", async () => {
+  const api = job("automatic", "List ECE 1A courses with prerequisites");
+  api.recordScope = "collection";
+  api.schema = { course_code: { type: "string" }, course_title: { type: "string" },
+    prerequisites: { type: "string" }, source_url: { type: "string" } };
+  await store.saveApiJob(api);
+  const result = await runApiJob(api.id, {
+    async discover() { return [{ url: "https://example.edu/category/courses" }]; },
+    async extract() { throw new Error("Use collection extraction"); },
+    async extractCollection(url) { return [
+      { data: { course_code: "ECE 105", course_title: "Classical Mechanics", prerequisites: null, source_url: url }, identity: "ECE 105" },
+    ]; },
+  }, async () => ({ action: "stop", query: null }), async (_request, candidates) => candidates,
+  undefined, async () => true, async () => null);
+  assert.equal(result.status, "partial");
+  assert.match(result.runSummary?.stopReason || "", /prerequisites/);
+  assert.equal(await store.countApiRecords(api.id), 1);
+});
+
+test("collection enrichment makes one bounded search for a missing requested field", async () => {
+  const api = job("automatic", "List ECE 1A courses with prerequisites");
+  api.recordScope = "collection";
+  api.sourceStrategy.searchQueries = ["ECE 1A course list"];
+  api.schema = { course_code: { type: "string" }, course_title: { type: "string" },
+    prerequisites: { type: "string" }, source_url: { type: "string" } };
+  await store.saveApiJob(api);
+  const queries: string[] = [];
+  const list = "https://example.edu/category/courses";
+  const detail = "https://example.edu/course/ECE105";
+  const result = await runApiJob(api.id, {
+    async discover(query) { queries.push(query); return [{ url: queries.length === 1 ? list : detail }]; },
+    async extract() { throw new Error("Use collection extraction"); },
+    async extractCollection(url) { return url === list ? [
+      { data: { course_code: "ECE 105", course_title: "Classical Mechanics", prerequisites: null, source_url: url }, identity: "ECE 105" },
+    ] : [
+      { data: { course_code: "ECE 105", course_title: null, prerequisites: "Level 1A Engineering", source_url: url }, identity: "ECE 105" },
+    ]; },
+  }, async () => ({ action: "stop", query: null }), async (_request, candidates) => candidates,
+  undefined, async () => true, async () => null);
+  assert.equal(result.status, "ready");
+  assert.equal(result.runSummary?.searchCalls, 2);
+  assert.equal(result.runSummary?.recoveryCalls, 1);
+  assert.match(queries[1], /ece 105 prerequisites/i);
+  assert.equal((await store.listApiRecords(api.id))[0].data.prerequisites, "Level 1A Engineering");
+});
+
 test("source-less retailer typo suggests a correction without changing the request", async () => {
   const api = job("automatic", "Find fresh apples at Fresco Canada");
   api.sourceStrategy.searchQueries = ["Fresco Canada fresh apple price"];

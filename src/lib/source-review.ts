@@ -36,6 +36,7 @@ export async function reviewSourceCandidates(
         "Match the requested retailer, product type, variety/model, and other stated constraints. A retailer's regional domain is valid unless the user specified a country or domain.",
       "For a grocery fruit request, a tree, seed, plant, dried fruit, or different fruit variety is not a match.",
       collection ? "The user requests a collection. Accept an authoritative list or category page that names requested members, as well as individual member pages." : "Reject category/search/list pages unless the user explicitly asks for a list or category.",
+      "For a current course request, prefer official current program schedules and catalogs. Reject an obviously old year-specific archive when a current equivalent is available.",
       "If a page is ambiguous, omit it. Never invent URLs or indices.",
       "Return zero-based candidate indices, ordered best match first. An empty array is valid.",
     ].join(" "),

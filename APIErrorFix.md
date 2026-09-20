@@ -105,3 +105,5 @@ Implemented in the current code:
 Verified with unit tests, the MongoDB integration suite, lint, and a production build. The live check establishes this one path only; other retailers and source layouts can still fail.
 
 Remaining work: authoritative list membership across pagination, following each member's detail page when the list omits requested fields, explicit missing-member names, and broader controlled live checks for course, documentation, and product collections. These depend on the actual public pages returned. Keep the run ceilings in place while extending them.
+
+Live follow-up: a focused Waterloo ECE 1A collection run saved four separate course records and correctly returned Partial because one record lacked description and prerequisites. It spent its three-scrape limit, so the bounded enrichment search did not run. A planner/source-review instruction now prefers current official term lists before individual or archived course pages. Live completeness across the full Waterloo course set remains unverified.

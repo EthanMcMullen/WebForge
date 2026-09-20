@@ -545,7 +545,7 @@ export function Workspace() {
 
             {selected.run_summary && <div className="run-summary panel" aria-label="Latest run summary">
               <strong>Latest run{selected.run_summary.outcome === "partial_stopped" ? ", partial data" : ""}</strong>
-              <span>{selected.run_summary.saved_records} saved{selected.run_summary.identified_items !== null ? " of " + selected.run_summary.identified_items + " identified" : ""}</span>
+              <span>{selected.run_summary.saved_records} saved{selected.run_summary.identified_items !== null ? " saved; " + selected.run_summary.identified_items + " candidate items reviewed" : ""}</span>
               <span>{selected.run_summary.skipped_sources} skipped</span>
               <span>{selected.run_summary.search_calls} searches</span>
               <span>{selected.run_summary.scrape_calls} scrapes</span>

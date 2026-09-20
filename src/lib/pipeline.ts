@@ -110,6 +110,7 @@ export async function runApiJob(
   const completedQueries = new Set<string>();
   const identifiedItemKeys = new Set<string>();
   const savedItemKeys = new Set<string>();
+  const collectionRecords = new Map<string, ApiRecord>();
   const seen = new Set<string>();
   const queries: string[] = [];
   const failures: Array<{ domain: string; code: SourceFailureCode }> = [];
@@ -119,6 +120,7 @@ export async function runApiJob(
   const combined = job.combineSources ? createCombinedRecord(job.schema) : null;
   let combinedIdentity: string | null = null;
   let completeCombinedRun = false;
+  let collectionEnrichmentAttempted = false;
   // Vision fallback budget: at most `limits.visionFallbacks` screenshot reads
   // per run. The extra screenshot scrape is counted in `scrapeCalls`.
   let visionRemaining = limits.visionFallbacks;
@@ -185,6 +187,9 @@ export async function runApiJob(
   };
 
   try {
+    if (job.recordScope === "collection") for (const record of await listApiRecords(job.id)) {
+      if (record.itemKey) collectionRecords.set(record.itemKey, record);
+    }
     if (automatic) {
       const batches: SearchBatch[] = [];
       if (!planned.length) searchIssue = true;
@@ -254,9 +259,29 @@ export async function runApiJob(
                 continue;
               }
               if (await cancelled()) { stopReason = "Run cancelled."; break; }
+              const previousRecord = collectionRecords.get(itemKey);
+              const primaryUrl = previousRecord?.sourceUrl || candidate.url;
+              const mergedData: ApiRecord["data"] = { ...(previousRecord?.data || {}), source_url: primaryUrl };
+              const fieldSources = { ...(previousRecord?.fieldSources || {}) };
+              for (const [key, value] of Object.entries(data)) {
+                if (key === "source_url") continue;
+                if (value === null || value === "") {
+                  if (!(key in mergedData)) mergedData[key] = null;
+                } else if (mergedData[key] === null || mergedData[key] === undefined ||
+                    (fieldSources[key] || previousRecord?.sourceUrl) === candidate.url) {
+                  mergedData[key] = value;
+                  fieldSources[key] = candidate.url;
+                }
+              }
+              const savedRecord: ApiRecord = {
+                id: previousRecord?.id || crypto.randomUUID(), jobId: job.id, sourceUrl: primaryUrl,
+                itemKey, data: mergedData, extractedAt: new Date().toISOString(),
+                sourceUrls: [...new Set([...(previousRecord?.sourceUrls || (previousRecord ? [previousRecord.sourceUrl] : [])), candidate.url])],
+                fieldSources,
+              };
               await setStatus(job, "storing");
-              await saveApiRecords(job.id, [{ id: crypto.randomUUID(), jobId: job.id, sourceUrl: candidate.url,
-                itemKey, data, extractedAt: new Date().toISOString() }]);
+              await saveApiRecords(job.id, [savedRecord]);
+              collectionRecords.set(itemKey, savedRecord);
               savedOnPage++;
               if (!savedItemKeys.has(itemKey)) { savedItemKeys.add(itemKey); summary.savedRecords++; }
               attempt({ url: candidate.url, query: candidate.plannedQuery, stage: "save", code: "SAVED",
@@ -339,6 +364,30 @@ export async function runApiJob(
         continue;
       }
 
+      if (automatic && job.recordScope === "collection" && !collectionEnrichmentAttempted &&
+          summary.savedRecords > 0 && summary.recoveryCalls < limits.recoveryCalls &&
+          canSearch(summary.searchCalls, startMs, limits) && summary.scrapeCalls < limits.scrapes) {
+        const incomplete = [...savedItemKeys].map((key) => ({
+          key, record: collectionRecords.get(key),
+          missing: Object.keys(job.schema).filter((field) => field !== "source_url" &&
+            (collectionRecords.get(key)?.data[field] === null || collectionRecords.get(key)?.data[field] === undefined)),
+        })).find((item) => item.record && item.missing.length);
+        if (incomplete?.record) {
+          collectionEnrichmentAttempted = true;
+          summary.recoveryCalls++;
+          await saveRunSummary(summary);
+          const host = domainOf(incomplete.record.sourceUrl);
+          const query = [incomplete.key, ...incomplete.missing, host ? "site:" + host : ""].join(" ").slice(0, 200);
+          const more = await search(query);
+          queue.push(...more.slice(0, Math.max(0, limits.scrapes - summary.scrapeCalls))
+            .map((candidate) => ({ ...candidate, plannedQuery: query })));
+          if (queue.length) {
+            job.sources = [...new Set([...job.sources, ...queue.map((item) => item.url)])].slice(0, limits.candidates);
+            continue;
+          }
+        }
+      }
+
       if (!automatic || !(failures.length || searchIssue) ||
           !canRecover(summary.searchCalls, summary.scrapeCalls, summary.recoveryCalls,
             missingPlannedQueries(planned, completedQueries).length ? 0 : (combined ? combined.sourceUrls.length : summary.savedRecords),
@@ -412,6 +461,18 @@ export async function runApiJob(
       } catch (error) {
         const detail = error instanceof Error ? error.message : "Could not save the combined record.";
         stopReason = stopReason ? `${stopReason} ${detail}` : detail;
+      }
+    }
+    if (job.recordScope === "collection" && savedItemKeys.size) {
+      const incomplete = [...savedItemKeys].map((key) => ({
+        key, missing: Object.keys(job.schema).filter((field) => field !== "source_url" &&
+          (collectionRecords.get(key)?.data[field] === null || collectionRecords.get(key)?.data[field] === undefined)),
+      })).filter((item) => item.missing.length);
+      if (incomplete.length) {
+        const names = [...new Set(incomplete.flatMap((item) => item.missing))];
+        const detail = String(incomplete.length) + " of " + String(savedItemKeys.size) +
+          " saved members still lack requested fields: " + names.join(", ") + ".";
+        stopReason = stopReason ? stopReason + " " + detail : detail;
       }
     }
     if (!stopReason && summary.savedRecords === 0 && summary.totalFailures) stopReason = "No usable records were extracted.";
