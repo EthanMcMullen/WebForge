@@ -14,7 +14,7 @@ export function isBlockedDomain(host: string, blocked: string[]): boolean {
   return blocked.some((domain) => host === domain || host.endsWith(`.${domain}`));
 }
 export function filterCandidates(
-  results: SourceCandidate[], blocked: string[], seen: Set<string>, max: number,
+  results: SourceCandidate[], blocked: string[], seen: Set<string>, max: number, allowLists = false,
 ): SourceCandidate[] {
   const added: SourceCandidate[] = [];
   if (max <= 0) return added;
@@ -24,7 +24,7 @@ export function filterCandidates(
     const host = domainOf(url);
     if (!host || isBlockedDomain(host, blocked)) return;
     const path = new URL(url).pathname;
-    if (LIST_PATH.test(path) || KNOWN_CATEGORY_PATH.test(path)) return;
+    if (!allowLists && (LIST_PATH.test(path) || KNOWN_CATEGORY_PATH.test(path))) return;
     seen.add(url);
     added.push({ url, title: candidate.title?.slice(0, 200), description: candidate.description?.slice(0, 300), parentUrl: candidate.parentUrl });
   };
@@ -58,7 +58,7 @@ export function classifySourceError(error: unknown): SourceFailureCode {
   if (status === 401 || status === 402 || /invalid.api.key|api.key is required|billing|payment.required|unauthorized/.test(message)) return "CONFIG_OR_BILLING";
   if (/do not support this site|unsupported.site|site.not.supported/.test(message)) return "UNSUPPORTED_SITE";
   if (status === 403 || /login.required|access.denied|captcha|blocked.by/.test(message)) return "ACCESS_BLOCKED";
-  if (/no structured json|no usable fields|no new fields for the combined record/.test(message)) return "NO_STRUCTURED_JSON";
+  if (/no structured json|no usable fields|no new fields for the combined record|collection item has no identifying field/.test(message)) return "NO_STRUCTURED_JSON";
   if (/vision fallback.*(no usable fields|no data|no page screenshot)/.test(message)) return "NO_STRUCTURED_JSON";
   if (/price was not supported by source text/.test(message)) return "UNVERIFIED_PRICE";
   if (/vision fallback price was not supported/.test(message)) return "UNVERIFIED_PRICE";

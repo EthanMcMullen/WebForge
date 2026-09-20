@@ -21,6 +21,7 @@ export async function reviewSourceCandidates(
   candidates: SourceCandidate[],
   searchQuery?: string,
   combineSources = false,
+  collection = false,
 ): Promise<SourceCandidate[]> {
   if (!candidates.length) return [];
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required to review source matches.");
@@ -34,7 +35,7 @@ export async function reviewSourceCandidates(
       combineSources ? "This job combines different public sites for one exact entity. A named site may supply one requested field group while another site supplies another. Follow the search query's source and fact group; reject a different model or variant." :
         "Match the requested retailer, product type, variety/model, and other stated constraints. A retailer's regional domain is valid unless the user specified a country or domain.",
       "For a grocery fruit request, a tree, seed, plant, dried fruit, or different fruit variety is not a match.",
-      "Reject category/search/list pages unless the user explicitly asks for a list or category.",
+      collection ? "The user requests a collection. Accept an authoritative list or category page that names requested members, as well as individual member pages." : "Reject category/search/list pages unless the user explicitly asks for a list or category.",
       "If a page is ambiguous, omit it. Never invent URLs or indices.",
       "Return zero-based candidate indices, ordered best match first. An empty array is valid.",
     ].join(" "),

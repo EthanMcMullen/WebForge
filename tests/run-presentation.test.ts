@@ -8,7 +8,7 @@ test("a successful automatic fallback does not show a job error", () => {
     errors: ["https://business.walmart.com/c/brand/good-apple: no structured json"],
     expectedCap: false,
   });
-  assert.deepEqual(result, { outcome: "partial_stopped", stopReason: "1 source(s) skipped or failed.", warning: null });
+  assert.deepEqual(result, { outcome: "ready", stopReason: null, warning: null });
 });
 
 test("explicit source failure stays visible when another provided URL succeeds", () => {
@@ -27,4 +27,11 @@ test("fatal stop stays visible even when earlier records exist", () => {
   });
   assert.equal(result.outcome, "partial_stopped");
   assert.match(result.warning || "", /rate limited/);
+});
+
+test("automatic run is ready after recovering a complete record from a later source", () => {
+  const result = presentRunResult({ automatic: true, hasRecords: true, savedRecords: 1,
+    stopReason: null, errors: ["first product page had no verifiable price"], expectedCap: false });
+  assert.equal(result.outcome, "ready");
+  assert.equal(result.stopReason, null);
 });

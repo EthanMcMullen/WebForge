@@ -91,3 +91,17 @@ A refresh must retain the last verified record if a new attempt fails; show extr
 4. **P3:** Better replan and partial-data controls in the UI.
 
 This plan does not promise access to private, login-only, location-dependent, or unsupported pages. It does require WebForge to distinguish those limits from its own bugs and to avoid turning either into a misleading API.
+
+## Implementation status (2026-09-19)
+
+Implemented in the current code:
+
+- New jobs retain the planner's single-versus-collection decision through the run. A collection page can return up to 12 separate members in one bounded scrape. MongoDB stores multiple members from one URL and deduplicates the same member across pages.
+- Search filtering, source review, scrape/quality failures, and saves record bounded per-source decisions. Run history exposes those decisions. The UI distinguishes a queued job when the worker heartbeat is absent.
+- Price evidence uses the planned item name, and a same-scrape Firecrawl product profile can corroborate a current price only for the exact product URL and a single unambiguous variant price. Related-item prices still fail.
+- Automatic runs that recover a complete record from a later source finish Ready; rejected source details remain in run history. Existing APIs can be replanned as a new copy, preserving the old job and records.
+- The 3-scrape focused end-to-end live check saved a Walmart green seedless grape record at $3.98 after one product page rejection and a successful listing-page extraction. The check used a temporary MongoDB database and removed it afterward.
+
+Verified with unit tests, the MongoDB integration suite, lint, and a production build. The live check establishes this one path only; other retailers and source layouts can still fail.
+
+Remaining work: authoritative list membership across pagination, following each member's detail page when the list omits requested fields, explicit missing-member names, and broader controlled live checks for course, documentation, and product collections. These depend on the actual public pages returned. Keep the run ceilings in place while extending them.

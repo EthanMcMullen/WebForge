@@ -2,7 +2,7 @@ import "server-only";
 import { planApiJob } from "./planner";
 import { countApiRecords, finishRefreshSchedule, getApiJob, getLatestRun, isRunCancelled, listApiRecords, saveApiJob, saveApiJobProgress, saveApiRecords, saveCombinedApiRecord, saveRunSummary } from "./store";
 import { cleanSourceUrls, type CreateApiJobData } from "./validation";
-import type { ApiJob, ApiRecord, RunSummary, SourceCandidate, SourceFailureCode } from "./types";
+import type { ApiJob, ApiRecord, RunSummary, SourceAttempt, SourceCandidate, SourceFailureCode } from "./types";
 import { firecrawlProvider, type ExtractionProvider } from "./providers/firecrawl";
 import { withVisionFallback } from "./providers/vision";
 import { DEFAULT_BLOCKED_DOMAINS, classifySourceError, domainOf, filterCandidates, isBlockedDomain, isFatalFailure } from "./source-support";
@@ -26,7 +26,7 @@ export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
     id: crypto.randomUUID(), name: input.name || "Planning API job", userRequest: input.user_request,
     status: "planning", schema: {}, proposedSchema: {}, schemaConfirmedAt: null,
     sourceStrategy: { type: input.source_strategy.type, searchQueries: input.source_strategy.search_queries },
-    sources, combineSources: input.combine_sources, searchDepth: input.search_depth,
+    sources, combineSources: input.combine_sources, recordScope: "single", searchDepth: input.search_depth,
     refreshInterval: input.refresh_interval, error: null, createdAt: now, updatedAt: now,
     blockedDomains: [],
   };
@@ -36,6 +36,7 @@ export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
     job.name = input.name || plan.name;
     job.proposedSchema = plan.schema;
     job.combineSources = plan.combineSources;
+    job.recordScope = plan.recordScope;
     if (job.sourceStrategy.type === "automatic") job.sourceStrategy.searchQueries = plan.searchQueries;
     job.status = "awaiting_fields";
   } catch (error) {
@@ -61,10 +62,10 @@ export async function runApiJob(
   id: string,
   provider: ExtractionProvider = firecrawlProvider,
   recovery: (input: RecoveryInput) => Promise<RecoveryDecision> = recoverSearchQuery,
-  reviewSources: (request: string, candidates: SourceCandidate[], query?: string, combineSources?: boolean) => Promise<SourceCandidate[]> = reviewSourceCandidates,
+  reviewSources: (request: string, candidates: SourceCandidate[], query?: string, combineSources?: boolean, collection?: boolean) => Promise<SourceCandidate[]> = reviewSourceCandidates,
   queuedRun?: { id: string; trigger: "manual" | "scheduled" },
   reviewRecord: (request: string, data: ApiRecord["data"], sourceUrl: string, title?: string, plannedQuery?: string | null, identity?: string | null,
-    combineSources?: boolean, priorIdentity?: string | null, priorData?: ApiRecord["data"] | null) => Promise<boolean> = reviewExtractedRecord,
+    combineSources?: boolean, priorIdentity?: string | null, priorData?: ApiRecord["data"] | null, collection?: boolean) => Promise<boolean> = reviewExtractedRecord,
   suggestCorrection: (request: string, queries: string[]) => Promise<string | null> = suggestSourceCorrection,
 ): Promise<ApiJob> {
   const job = await getApiJob(id);
@@ -82,10 +83,24 @@ export async function runApiJob(
     recoveryCalls: previous?.recoveryCalls || 0, consecutiveFailures: previous?.consecutiveFailures || 0,
     totalFailures: previous?.totalFailures || 0, savedRecords: previous?.savedRecords || 0,
     skippedSources: previous?.skippedSources || 0, outcome: "running", stopReason: null,
-    trigger: queuedRun?.trigger || "manual",
+    trigger: queuedRun?.trigger || "manual", attempts: previous?.attempts || [],
   };
   try { await saveRunSummary(summary); }
   catch (error) { runningJobs.delete(id); throw error; }
+  const attempt = (entry: SourceAttempt) => {
+    let safeUrl = entry.url.slice(0, 500);
+    if (!safeUrl.startsWith("search:")) {
+      try {
+        const parsed = new URL(safeUrl);
+        parsed.username = ""; parsed.password = ""; parsed.search = ""; parsed.hash = "";
+        safeUrl = parsed.toString();
+      } catch { safeUrl = "unavailable source URL"; }
+    }
+    if ((summary.attempts?.length || 0) < 60) summary.attempts!.push({
+      ...entry, url: safeUrl, title: entry.title?.slice(0, 160),
+      query: entry.query?.slice(0, 200) || null,
+    });
+  };
   const cancelled = async () => queuedRun ? isRunCancelled(queuedRun.id) : false;
   const blocked = new Set([...DEFAULT_BLOCKED_DOMAINS, ...(job.blockedDomains || [])]);
   const queue: PlannedCandidate[] = [];
@@ -93,6 +108,8 @@ export async function runApiJob(
   const limits = runLimitsForSearchDepth(automatic ? job.searchDepth : "deep");
   const planned = automatic ? plannedSearchQueries(job.sourceStrategy.searchQueries, limits.plannedSearches) : [];
   const completedQueries = new Set<string>();
+  const identifiedItemKeys = new Set<string>();
+  const savedItemKeys = new Set<string>();
   const seen = new Set<string>();
   const queries: string[] = [];
   const failures: Array<{ domain: string; code: SourceFailureCode }> = [];
@@ -128,10 +145,14 @@ export async function runApiJob(
     await setStatus(job, "discovering");
     try {
       const results = await provider.discover(query, { excludedDomains: [...blocked], limit: 5 });
-      const next = filterCandidates(results, [...blocked], new Set(seen), 5);
+      const next = filterCandidates(results, [...blocked], new Set(seen), 5, job.recordScope === "collection");
+      const candidates = new Set(next.map((item) => item.url));
+      for (const result of results) if (!candidates.has(result.url)) {
+        attempt({ url: result.url, query, stage: "candidate_filter", code: "FILTERED", title: result.title });
+      }
       let reviewed: SourceCandidate[];
       try {
-        reviewed = await reviewSources(job.userRequest, next, query, Boolean(combined));
+        reviewed = await reviewSources(job.userRequest, next, query, Boolean(combined), job.recordScope === "collection");
         const allowed = new Set(next.map((item) => item.url));
         if (new Set(reviewed.map((item) => item.url)).size !== reviewed.length ||
             reviewed.some((item) => !allowed.has(item.url))) {
@@ -141,7 +162,12 @@ export async function runApiJob(
         stopReason = "Could not verify source relevance.";
         throw new Error(stopReason);
       }
-      summary.skippedSources += Math.max(0, results.length - reviewed.length);
+      const accepted = new Set(reviewed.map((item) => item.url));
+      for (const candidate of next) if (!accepted.has(candidate.url)) {
+        attempt({ url: candidate.url, query, stage: "source_review", code: "REJECTED", title: candidate.title });
+      }
+      summary.skippedSources += results.filter((result) => !candidates.has(result.url)).length +
+        next.filter((candidate) => !accepted.has(candidate.url)).length;
       for (const candidate of reviewed) seen.add(candidate.url);
       if (!reviewed.length) searchIssue = true;
       return reviewed;
@@ -153,6 +179,7 @@ export async function runApiJob(
         throw new Error(stopReason);
       }
       searchIssue = true;
+      attempt({ url: "search:" + query, query, stage: "candidate_filter", code });
       return [];
     }
   };
@@ -167,6 +194,10 @@ export async function runApiJob(
         if (stopReason) break;
       }
       queue.push(...prioritizeSearchBatches(batches, limits.candidates));
+      const queuedUrls = new Set(queue.map((item) => item.url));
+      for (const batch of batches) for (const candidate of batch.candidates) if (!queuedUrls.has(candidate.url)) {
+        attempt({ url: candidate.url, query: batch.query, stage: "candidate_filter", code: "BUDGET", title: candidate.title });
+      }
       summary.skippedSources += Math.max(0, batches.reduce((sum, batch) => sum + batch.candidates.length, 0) - queue.length);
     } else {
       for (const url of job.sources.slice(0, limits.candidates)) {
@@ -191,6 +222,7 @@ export async function runApiJob(
         const host = domainOf(candidate.url);
         if (host && isBlockedDomain(host, [...blocked])) {
           summary.skippedSources++;
+          attempt({ url: candidate.url, query: candidate.plannedQuery, stage: "candidate_filter", code: "UNSUPPORTED_SITE", title: candidate.title });
           if (!automatic) errors.push(failureDescription(candidate.url, "UNSUPPORTED_SITE"));
           continue;
         }
@@ -199,6 +231,44 @@ export async function runApiJob(
         await setStatus(job, "scraping");
         try {
           await setStatus(job, "extracting");
+          if (job.recordScope === "collection" && !job.schema.price && provider.extractCollection) {
+            const rows = await provider.extractCollection(candidate.url, job.schema, job.userRequest, candidate.title);
+            const pageKeys = new Set<string>();
+            let savedOnPage = 0;
+            for (const row of rows) {
+              const { data, identity } = row;
+              const keyField = Object.keys(job.schema).find((key) =>
+                /(?:^|_)(?:code|name|title|id)$/.test(key) && typeof data[key] === "string" && String(data[key]).trim());
+              if (!keyField) throw new Error("Collection item has no identifying field.");
+              const itemKey = String(data[keyField]).trim().toLowerCase().replace(/\s+/g, " ").slice(0, 180);
+              if (pageKeys.has(itemKey)) continue;
+              pageKeys.add(itemKey);
+              identifiedItemKeys.add(itemKey);
+              summary.identifiedItems = identifiedItemKeys.size;
+              validateRecordQuality({ request: job.userRequest, schema: job.schema, data,
+                sourceUrl: candidate.url, sourceTitle: row.sourceTitle, canonicalUrl: row.canonicalUrl });
+              if (!await reviewRecord(job.userRequest, data, candidate.url, candidate.title, candidate.plannedQuery, identity,
+                false, null, null, true)) {
+                attempt({ url: candidate.url, query: candidate.plannedQuery, stage: "record_review", code: "IRRELEVANT_RECORD",
+                  title: candidate.title, fieldsPresent: [keyField] });
+                continue;
+              }
+              if (await cancelled()) { stopReason = "Run cancelled."; break; }
+              await setStatus(job, "storing");
+              await saveApiRecords(job.id, [{ id: crypto.randomUUID(), jobId: job.id, sourceUrl: candidate.url,
+                itemKey, data, extractedAt: new Date().toISOString() }]);
+              savedOnPage++;
+              if (!savedItemKeys.has(itemKey)) { savedItemKeys.add(itemKey); summary.savedRecords++; }
+              attempt({ url: candidate.url, query: candidate.plannedQuery, stage: "save", code: "SAVED",
+                title: candidate.title, fieldsPresent: Object.keys(data).filter((key) => key !== "source_url" && data[key] !== null),
+                fieldsMissing: Object.keys(data).filter((key) => key !== "source_url" && data[key] === null) });
+            }
+            if (!savedOnPage && !stopReason) throw new Error("Firecrawl returned no usable fields.");
+            if (candidate.plannedQuery && savedOnPage) completedQueries.add(candidate.plannedQuery);
+            summary.consecutiveFailures = 0;
+            await saveRunSummary(summary);
+            continue;
+          }
           const extracted = await extracting.extract(candidate.url, job.schema, candidate.title, job.userRequest, Boolean(combined));
           const { data, identity } = extracted;
           if (extracted.viaVision) {
@@ -231,6 +301,9 @@ export async function runApiJob(
             await saveApiRecords(job.id, [record]);
             summary.savedRecords++;
           }
+          attempt({ url: candidate.url, query: candidate.plannedQuery, stage: "save", code: "SAVED",
+            title: candidate.title, fieldsPresent: Object.keys(data).filter((key) => key !== "source_url" && data[key] !== null),
+            fieldsMissing: Object.keys(data).filter((key) => key !== "source_url" && data[key] === null) });
           if (candidate.plannedQuery) completedQueries.add(candidate.plannedQuery);
           summary.consecutiveFailures = 0;
           await saveRunSummary(summary);
@@ -241,6 +314,9 @@ export async function runApiJob(
           summary.skippedSources++;
           await saveRunSummary(summary);
           failures.push({ domain: host || "unknown", code });
+          attempt({ url: candidate.url, query: candidate.plannedQuery, stage: code === "IRRELEVANT_RECORD" ? "record_review" :
+            code === "MISSING_REQUIRED_FIELD" || code === "UNVERIFIED_PRICE" || code === "SOURCE_IDENTITY_MISMATCH" ? "quality_check" : "scrape",
+            code, title: candidate.title });
           const canTryListing = code === "UNVERIFIED_PRICE" && candidate.parentUrl && !seen.has(candidate.parentUrl);
           if (canTryListing && candidate.parentUrl) {
             seen.add(candidate.parentUrl);
@@ -283,7 +359,9 @@ export async function runApiJob(
         break;
       }
       if (decision.action !== "search_again" || !decision.query) {
-        stopReason = "Recovery found no better public source query.";
+        stopReason = failures.length ? "No better public source was found after " +
+          failures[failures.length - 1].code.replaceAll("_", " ").toLowerCase() + "." :
+          "Recovery found no better public source query.";
         break;
       }
       // Validate injected recovery providers too, not only the OpenAI implementation.

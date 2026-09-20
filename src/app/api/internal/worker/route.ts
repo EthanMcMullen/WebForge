@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { claimNextRun, enqueueDueRefreshes } from "@/lib/store";
+import { claimNextRun, enqueueDueRefreshes, markWorkerSeen } from "@/lib/store";
 import { runApiJob } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
@@ -14,6 +14,7 @@ export async function POST(request: Request) {
       !timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
+  await markWorkerSeen();
   const scheduled = await enqueueDueRefreshes();
   const run = await claimNextRun();
   if (!run) return NextResponse.json({ scheduled, ran: false });

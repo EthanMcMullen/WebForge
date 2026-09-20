@@ -4,7 +4,7 @@ import { classifySourceError, filterCandidates, isBlockedDomain } from "../src/l
 import { missingPlannedQueries, prioritizeSearchBatches } from "../src/lib/discovery-plan.ts";
 import { RUN_LIMITS, canRecover, canScrape, canSearch, plannedSearchQueries, runLimitsForSearchDepth } from "../src/lib/run-budget.ts";
 import { validateRecoveryDecision, type RecoveryInput } from "../src/lib/source-recovery-validation.ts";
-import { normalizeExtractedData, verifyPriceEvidence } from "../src/lib/extraction.ts";
+import { normalizeCollectionData, normalizeExtractedData, verifiedProductProfile, verifyPriceEvidence } from "../src/lib/extraction.ts";
 import { selectReviewedCandidates } from "../src/lib/source-review-validation.ts";
 
 test("unsupported social domains are skipped before paid scraping", () => {
@@ -136,4 +136,34 @@ test("discovery gives each subject a source before trying fallbacks", () => {
   assert.deepEqual(ordered.map((candidate) => candidate.plannedQuery), ["JavaScript", "HTML", "CSS", "JavaScript", "JavaScript"]);
   assert.deepEqual(missingPlannedQueries(batches.map((batch) => batch.query), new Set(["JavaScript"])), ["HTML", "CSS"]);
   assert.deepEqual(missingPlannedQueries(batches.map((batch) => batch.query), new Set(["JavaScript", "HTML", "CSS"])), []);
+});
+
+test("collection extraction keeps separate items from one page", () => {
+  const schema = { course_code: { type: "string" as const }, course_title: { type: "string" as const } };
+  const rows = normalizeCollectionData({ items: [
+    { course_code: "ECE 105", course_title: "Classical Mechanics" },
+    { course_code: "ECE 150", course_title: "Fundamentals of Programming" },
+  ] }, schema, "https://example.edu/courses");
+  assert.equal(rows.length, 2);
+  assert.equal(rows[1].course_code, "ECE 150");
+  assert.equal(rows[0].source_url, "https://example.edu/courses");
+});
+test("collection search may retain a course list page", () => {
+  const pages = filterCandidates([{ url: "https://example.edu/category/courses", title: "ECE 1A courses" }], [], new Set(), 5, true);
+  assert.equal(pages.length, 1);
+});
+test("price evidence uses the planned item_name field", () => {
+  assert.doesNotThrow(() => verifyPriceEvidence({ item_name: "Fresh grapes", price: 2.49 }, "# Fresh grapes\nPrice $2.49"));
+  assert.throws(() => verifyPriceEvidence({ item_name: "Fresh grapes", price: 9.99 }, "# Fresh grapes\nPrice $2.49"), /not supported/);
+});
+
+test("product profile corroborates only the exact page and a single current price", () => {
+  const url = "https://www.walmart.com/ip/Fresh-Grapes/123";
+  const profile = { title: "Fresh Grapes", url, variants: [{ price: { amount: 2.49, currency: "USD" } }] };
+  assert.equal(verifiedProductProfile(profile, url, { item_name: "Fresh Grapes", price: 2.49 })?.price, 2.49);
+  assert.equal(verifiedProductProfile(profile, url, { item_name: "Fresh Grapes", price: 5.99 }), null);
+  assert.equal(verifiedProductProfile(profile, "https://www.walmart.com/ip/Other/999", null), null);
+  assert.equal(verifiedProductProfile({ ...profile, variants: [
+    { price: { amount: 2.49 } }, { price: { amount: 3.99 } },
+  ] }, url, null), null);
 });

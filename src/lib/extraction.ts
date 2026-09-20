@@ -56,14 +56,14 @@ export function verifyPriceEvidence(
   subjectHint?: string,
 ): void {
   if (typeof data.price !== "number") return;
-  const name = typeof data.product_name === "string" && data.product_name.trim()
-    ? data.product_name.trim()
-    : subjectHint?.replace(/[,\s]*[$€£].*$/u, "").replace(/\*+/g, "").trim();
+  const name = [data.product_name, data.item_name, data.name, data.title]
+    .find((value): value is string => typeof value === "string" && Boolean(value.trim()))
+    ?.trim() || subjectHint?.replace(/[,\s]*[$€£].*$/u, "").replace(/\*+/g, "").trim();
   if (!name || !markdown) throw new Error("Price was not supported by source text.");
   const haystack = markdown.toLowerCase();
   const needle = name.toLowerCase();
   const amount = data.price.toFixed(2);
-  const pricePattern = new RegExp("[\\$€£]\\s*" + amount.replace(".", "\\.") + "(?!\\d)", "u");
+  const pricePattern = new RegExp("[\\$\\u20AC\\u00A3]\\s*" + amount.replace(".", "\\.") + "(?!\\d)", "u");
   let offset = 0;
   while ((offset = haystack.indexOf(needle, offset)) !== -1) {
     const nearby = markdown.slice(Math.max(0, offset - 100), offset + name.length + 350);
@@ -71,6 +71,52 @@ export function verifyPriceEvidence(
     offset += needle.length;
   }
   throw new Error("Price was not supported by source text.");
+}
+
+export function verifiedProductProfile(
+  profile: unknown, sourceUrl: string, extracted: ApiRecordData | null,
+): { title: string; price: number; currency: string | null } | null {
+  if (!profile || typeof profile !== "object") return null;
+  const product = profile as { title?: unknown; url?: unknown; variants?: unknown };
+  if (typeof product.title !== "string" || !product.title.trim() ||
+      typeof product.url !== "string" || !Array.isArray(product.variants)) return null;
+  try {
+    const requested = new URL(sourceUrl);
+    const actual = new URL(product.url);
+    if (requested.hostname.toLowerCase() !== actual.hostname.toLowerCase() ||
+        requested.pathname.replace(/\/$/, "") !== actual.pathname.replace(/\/$/, "")) return null;
+  } catch { return null; }
+  const identity = [extracted?.product_name, extracted?.item_name, extracted?.name, extracted?.title]
+    .find((value): value is string => typeof value === "string" && Boolean(value.trim()));
+  if (identity) {
+    const words = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const expected = words(identity);
+    const actual = words(product.title);
+    const actualTokens = new Set(actual.split(" "));
+    if (!expected.split(" ").filter((token) => token.length > 2).every((token) => actualTokens.has(token))) return null;
+  }
+  const priced = (product.variants as Array<{ price?: { amount?: unknown; currency?: unknown } }>)
+    .map((variant) => variant?.price).filter((price) =>
+      typeof price?.amount === "number" && Number.isFinite(price.amount) && price.amount > 0);
+  if (!priced.length || new Set(priced.map((price) => price!.amount)).size !== 1) return null;
+  const price = priced[0]!.amount as number;
+  if (typeof extracted?.price === "number" && Math.abs(extracted.price - price) > 0.001) return null;
+  const currencies = [...new Set(priced.map((item) => item?.currency).filter((value): value is string => typeof value === "string"))];
+  if (currencies.length > 1) return null;
+  return { title: product.title, price, currency: currencies[0] || null };
+}
+
+export function normalizeCollectionData(raw: unknown, schema: ApiRecordSchema, sourceUrl: string, limit = 12): ApiRecordData[] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Firecrawl returned no structured JSON object.");
+  const items = (raw as { items?: unknown }).items;
+  if (!Array.isArray(items) || !items.length) throw new Error("Firecrawl returned no structured JSON object.");
+  const rows: ApiRecordData[] = [];
+  for (const item of items.slice(0, limit)) {
+    try { rows.push(normalizeExtractedData(item, schema, sourceUrl, true)); }
+    catch { /* One malformed member must not discard other valid members. */ }
+  }
+  if (!rows.length) throw new Error("Firecrawl returned no usable fields.");
+  return rows;
 }
 
 export function selectSourceUrls(results: Array<{ url?: string; metadata?: { sourceURL?: string; url?: string } }>, limit = 5): string[] {

@@ -15,13 +15,14 @@ export function presentRunResult(input: RunPresentationInput): {
   warning: string | null;
 } {
   const recovered = input.automatic && input.savedRecords > 0 && !input.stopReason;
-  const reason = input.expectedCap ? null
+  const reason = input.expectedCap || recovered ? null
     : input.stopReason || (input.errors.length
       ? `${input.errors.length} source(s) skipped or failed.`
       : null);
   const details = recovered ? [] : input.errors.slice(0, 3);
   const warning = recovered ? null : [reason, ...details].filter(Boolean).join(" ") || null;
   const outcome: RunOutcome = !input.hasRecords ? "failed"
+    : recovered ? "ready"
     : warning || input.errors.length > 0 ? "partial_stopped" : "ready";
   return { outcome, stopReason: reason, warning };
 }

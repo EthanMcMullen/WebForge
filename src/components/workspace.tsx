@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiJobResponse, SearchDepth, SourceStrategyType } from "@/lib/types";
 
-type Config = { planner_ready: boolean; extraction_ready: boolean; database_ready: boolean; vision_ready?: boolean; missing: string[] };
+type Config = { planner_ready: boolean; extraction_ready: boolean; database_ready: boolean; vision_ready?: boolean; worker_online?: boolean; worker_seen_at?: string | null; missing: string[] };
 type ApiRecordResponse = { id: string; job_id: string; source_url: string; source_urls: string[];
   field_sources: Record<string, string>; data: Record<string, string | number | boolean | null>; extracted_at: string };
-type RunHistory = { id: string; startedAt: string; finishedAt: string | null; trigger: "manual" | "scheduled"; outcome: string; savedRecords: number; searchCalls: number; scrapeCalls: number; stopReason: string | null; cancelRequested: boolean };
+type RunHistory = { attempts?: Array<{ url: string; query: string | null; stage: string; code: string; title?: string; fieldsPresent?: string[]; fieldsMissing?: string[] }>; id: string; startedAt: string; finishedAt: string | null; trigger: "manual" | "scheduled"; outcome: string; savedRecords: number; identifiedItems?: number; searchCalls: number; scrapeCalls: number; stopReason: string | null; cancelRequested: boolean };
 
 const statusLabels: Record<ApiJobResponse["status"], string> = {
   planning: "Planning",
@@ -153,6 +153,16 @@ export function Workspace() {
     return () => window.clearInterval(timer);
   }, [accessState, jobs, loadJobs]);
 
+
+  useEffect(() => {
+    if (accessState !== "unlocked" || !jobs.some((job) => job.status === "queued")) return;
+    const timer = window.setInterval(() => {
+      void fetch("/api/config", { cache: "no-store" })
+        .then((response) => response.ok ? response.json() as Promise<Config> : null)
+        .then((next) => { if (next) setConfig(next); });
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [accessState, jobs]);
 
   useEffect(() => {
     void fetch("/api/access", { cache: "no-store" })
@@ -535,7 +545,7 @@ export function Workspace() {
 
             {selected.run_summary && <div className="run-summary panel" aria-label="Latest run summary">
               <strong>Latest run{selected.run_summary.outcome === "partial_stopped" ? ", partial data" : ""}</strong>
-              <span>{selected.run_summary.saved_records} saved</span>
+              <span>{selected.run_summary.saved_records} saved{selected.run_summary.identified_items !== null ? " of " + selected.run_summary.identified_items + " identified" : ""}</span>
               <span>{selected.run_summary.skipped_sources} skipped</span>
               <span>{selected.run_summary.search_calls} searches</span>
               <span>{selected.run_summary.scrape_calls} scrapes</span>
@@ -544,7 +554,7 @@ export function Workspace() {
             </div>}
 
             {["queued", "discovering", "scraping", "extracting", "storing"].includes(selected.status) &&
-              <div className="run-summary panel"><span>Running{selected.run_summary?.cancel_requested ? " — cancellation requested" : ""}</span><button className="ghost-button" onClick={() => void cancelRun()} disabled={Boolean(selected.run_summary?.cancel_requested)}>{selected.run_summary?.cancel_requested ? "Cancelling" : "Cancel"}</button></div>}
+              <div className="run-summary panel"><span>{selected.status === "queued" ? (config?.worker_online ? "Queued for worker" : "Queued — worker offline. Start npm run worker.") : "Running"}{selected.run_summary?.cancel_requested ? " — cancellation requested" : ""}</span><button className="ghost-button" onClick={() => void cancelRun()} disabled={Boolean(selected.run_summary?.cancel_requested)}>{selected.run_summary?.cancel_requested ? "Cancelling" : "Cancel"}</button></div>}
 
             {selected.error && <div className="error-banner job-error">{selected.error}</div>}
 
@@ -596,7 +606,7 @@ export function Workspace() {
 
             <section className="records-section panel"><div className="section-header"><div><p className="section-kicker">Provenance</p><h2>Runs</h2></div></div>
               {selected.sources.length > 0 && <ul className="source-list">{selected.sources.map((source) => <li key={source}><a href={source} target="_blank" rel="noreferrer">{source}</a></li>)}</ul>}
-              {runs.length ? <div className="table-wrap"><table><thead><tr><th>Started</th><th>Trigger</th><th>Outcome</th><th>Saved</th><th>Searches, scrapes</th><th>Details</th></tr></thead><tbody>{runs.map((run) => <tr key={run.id}><td>{new Date(run.startedAt).toLocaleString()}</td><td>{run.trigger}</td><td>{run.outcome}</td><td>{run.savedRecords}</td><td>{run.searchCalls}, {run.scrapeCalls}</td><td>{run.stopReason || "—"}</td></tr>)}</tbody></table></div> : <p className="empty-records">No runs yet.</p>}
+              {runs.length ? <div className="table-wrap"><table><thead><tr><th>Started</th><th>Trigger</th><th>Outcome</th><th>Saved</th><th>Searches, scrapes</th><th>Details</th></tr></thead><tbody>{runs.map((run) => <tr key={run.id}><td>{new Date(run.startedAt).toLocaleString()}</td><td>{run.trigger}</td><td>{run.outcome}</td><td>{run.savedRecords}</td><td>{run.searchCalls}, {run.scrapeCalls}</td><td>{run.stopReason || "—"}{Boolean(run.attempts?.length) && <details><summary>Source attempts ({run.attempts?.length})</summary><ul>{run.attempts?.map((attempt, index) => <li key={run.id + index}><strong>{attempt.code}</strong> at {attempt.stage}: {attempt.url.startsWith("http") ? <a href={attempt.url} target="_blank" rel="noreferrer">{attempt.title || attempt.url}</a> : attempt.url}{attempt.fieldsMissing?.length ? " · missing " + attempt.fieldsMissing.join(", ") : ""}</li>)}</ul></details>}</td></tr>)}</tbody></table></div> : <p className="empty-records">No runs yet.</p>}
             </section>
 
             <section className="api-section panel"><div><p className="section-kicker">Integrate</p><h2>Endpoints</h2><p>Stable JSON for your app. Records update on refresh.</p></div><div className="endpoint-list"><div className="endpoint"><span className="method">GET</span><code>{recordsPath}</code><button onClick={() => void copyEndpoint(recordsPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{jobPath}</code><button onClick={() => void copyEndpoint(jobPath)}>Copy</button></div><div className="endpoint"><span className="method">GET</span><code>{schemaPath}</code><button onClick={() => void copyEndpoint(schemaPath)}>Copy</button></div></div></section>
@@ -614,7 +624,18 @@ export function Workspace() {
               </>}
               <label className="input-label settings-interval-label" htmlFor="api-interval">Refresh<span>Minutes, or blank for manual</span></label>
               <input id="api-interval" className="text-input interval-input" type="number" min="15" value={editInterval} onChange={(event) => setEditInterval(event.target.value)} placeholder="Manual" />
-              <div className="settings-editor-actions"><button className="primary-button" onClick={() => void saveApiSettings()} disabled={busy || editName.trim().length < 3}>Save changes</button><button className={`danger-button ${deleteArmed ? "armed" : ""}`} onClick={() => deleteArmed ? void removeApi() : setDeleteArmed(true)} disabled={busy}>{deleteArmed ? "Confirm delete" : "Delete"}</button></div>
+              <div className="settings-editor-actions"><button className="ghost-button" onClick={() => {
+                setName(selected.name + " revised");
+                setUserRequest(selected.user_request);
+                setStrategy(selected.source_strategy.type);
+                setCombineSources(selected.combine_sources);
+                setSourceText(selected.source_strategy.type === "provided_urls" ? selected.sources.join("\n") : "");
+                setRefreshInterval(selected.refresh_interval === null ? "" : String(selected.refresh_interval));
+                setSearchDepth(selected.search_depth);
+                setApiSettingsOpen(false);
+                setView("new");
+                setMessage("Review the request, then propose fresh fields and searches. The existing API remains available.");
+              }}>Replan as new API</button><button className="primary-button" onClick={() => void saveApiSettings()} disabled={busy || editName.trim().length < 3}>Save changes</button><button className={`danger-button ${deleteArmed ? "armed" : ""}`} onClick={() => deleteArmed ? void removeApi() : setDeleteArmed(true)} disabled={busy}>{deleteArmed ? "Confirm delete" : "Delete"}</button></div>
             </section>}          </>}
         </div>
       </main>

@@ -53,6 +53,55 @@ test("full pipeline rejects a wrong retailer record after extraction", async () 
   assert.equal(result.runSummary?.totalFailures, 1);
 });
 
+test("collection list page saves separate records and source decisions", async () => {
+  const api = job("automatic", "List all ECE 1A courses at Waterloo");
+  api.recordScope = "collection";
+  api.schema = { course_code: { type: "string" }, course_title: { type: "string" }, source_url: { type: "string" } };
+  api.sourceStrategy.searchQueries = ["Waterloo ECE 1A courses"];
+  await store.saveApiJob(api);
+  const page = { url: "https://example.edu/category/courses", title: "ECE 1A courses" };
+  const result = await runApiJob(api.id, {
+    async discover() { return [page]; },
+    async extract() { throw new Error("Collection job should use extractCollection"); },
+    async extractCollection(url) { return [
+      { data: { course_code: "ECE 105", course_title: "Classical Mechanics", source_url: url }, identity: "ECE 105" },
+      { data: { course_code: "ECE 150", course_title: "Fundamentals of Programming", source_url: url }, identity: "ECE 150" },
+    ]; },
+  }, async () => ({ action: "stop", query: null }), async (_request, candidates) => candidates,
+  undefined, async () => true, async () => null);
+  const records = await store.listApiRecords(api.id);
+  assert.equal(result.status, "ready");
+  assert.equal(records.length, 2);
+  assert.deepEqual(new Set(records.map((record) => record.data.course_code)), new Set(["ECE 105", "ECE 150"]));
+  assert.equal(result.runSummary?.attempts?.filter((attempt) => attempt.code === "SAVED").length, 2);
+});
+
+test("collection members found on multiple pages are deduplicated", async () => {
+  const api = job("automatic", "List all ECE 1A courses at Waterloo");
+  api.recordScope = "collection";
+  api.schema = { course_code: { type: "string" }, course_title: { type: "string" }, source_url: { type: "string" } };
+  await store.saveApiJob(api);
+  const first = "https://example.edu/category/courses";
+  const second = "https://example.edu/engineering/courses";
+  await runApiJob(api.id, {
+    async discover() { return [{ url: first }, { url: second }]; },
+    async extract() { throw new Error("Use collection extraction"); },
+    async extractCollection(url) { return url === first ? [
+      { data: { course_code: "ECE 105", course_title: "Classical Mechanics", source_url: url }, identity: "ECE 105" },
+    ] : [
+      { data: { course_code: "ECE 105", course_title: "Classical Mechanics", source_url: url }, identity: "ECE 105" },
+      { data: { course_code: "ECE 190", course_title: "Engineering Practice", source_url: url }, identity: "ECE 190" },
+    ]; },
+  }, async () => ({ action: "stop", query: null }), async (_request, candidates) => candidates,
+  undefined, async () => true, async () => null);
+  const records = await store.listApiRecords(api.id);
+  assert.equal(records.length, 2);
+  assert.deepEqual(new Set(records.map((record) => record.data.course_code)), new Set(["ECE 105", "ECE 190"]));
+  const latest = await store.getLatestRun(api.id);
+  assert.equal(latest?.identifiedItems, 2);
+  assert.equal(latest?.savedRecords, 2);
+});
+
 test("source-less retailer typo suggests a correction without changing the request", async () => {
   const api = job("automatic", "Find fresh apples at Fresco Canada");
   api.sourceStrategy.searchQueries = ["Fresco Canada fresh apple price"];

@@ -5,7 +5,7 @@ import type { ApiJob, ApiJobStatus, ApiRecord, RunOutcome, RunSummary, SearchDep
 
 type JobDocument = ApiJob & { nextRefreshAt: string | null; refreshFailures: number; refreshPaused: boolean };
 type RunDocument = RunSummary & { leaseUntil: string | null; cancelRequested: boolean; trigger: "manual" | "scheduled" };
-type Collections = { client: MongoClient; jobs: Collection<JobDocument>; runs: Collection<RunDocument>; records: Collection<ApiRecord> };
+type Collections = { client: MongoClient; jobs: Collection<JobDocument>; runs: Collection<RunDocument>; records: Collection<ApiRecord>; runtime: Collection<{ id: string; seenAt: string }> };
 
 let connection: Promise<Collections> | undefined;
 function collections(): Promise<Collections> {
@@ -21,6 +21,10 @@ function collections(): Promise<Collections> {
         const jobs = db.collection<JobDocument>("api_jobs");
         const runs = db.collection<RunDocument>("api_job_runs");
         const records = db.collection<ApiRecord>("api_records");
+        const runtime = db.collection<{ id: string; seenAt: string }>("runtime");
+        try { await records.dropIndex("jobId_1_sourceUrl_1"); } catch (error) {
+          if (!(error instanceof Error) || !/index not found|ns not found/i.test(error.message)) throw error;
+        }
         await Promise.all([
           jobs.createIndex({ id: 1 }, { unique: true }),
           jobs.createIndex({ updatedAt: -1 }),
@@ -29,10 +33,11 @@ function collections(): Promise<Collections> {
           runs.createIndex({ jobId: 1 }, { unique: true, name: "one_active_run_per_job",
             partialFilterExpression: { $or: [{ outcome: "queued" }, { outcome: "running" }] } }),
           records.createIndex({ id: 1 }, { unique: true }),
-          records.createIndex({ jobId: 1, sourceUrl: 1 }, { unique: true }),
+          records.createIndex({ jobId: 1, sourceUrl: 1, itemKey: 1 }, { unique: true }),
+          records.createIndex({ jobId: 1, itemKey: 1 }, { unique: true, partialFilterExpression: { itemKey: { $type: "string" } } }),
           records.createIndex({ jobId: 1, extractedAt: -1 }),
         ]);
-        return { client, jobs, runs, records };
+        return { client, jobs, runs, records, runtime };
       } catch {
         await client?.close();
         throw new Error("Could not connect to MongoDB Atlas. Check MONGODB_URI, database user, and Atlas Network Access.");
@@ -40,6 +45,15 @@ function collections(): Promise<Collections> {
     })().catch((error) => { connection = undefined; throw error; });
   }
   return connection;
+}
+
+export async function markWorkerSeen(): Promise<void> {
+  const { runtime } = await collections();
+  await runtime.updateOne({ id: "worker" }, { $set: { seenAt: new Date().toISOString() } }, { upsert: true });
+}
+export async function workerLastSeenAt(): Promise<string | null> {
+  const { runtime } = await collections();
+  return (await runtime.findOne({ id: "worker" }))?.seenAt || null;
 }
 
 async function enrichedJob(job: JobDocument | null): Promise<ApiJob | null> {
@@ -197,9 +211,9 @@ export async function saveApiRecords(jobId: string, recordsToSave: ApiRecord[]):
   if (recordsToSave.some((record) => record.jobId !== jobId)) throw new Error("Record belongs to a different job.");
   const { records } = await collections();
   await records.bulkWrite(recordsToSave.map((record) => ({ updateOne: {
-    filter: { jobId, sourceUrl: record.sourceUrl },
-    update: { $set: { data: record.data, extractedAt: record.extractedAt, sourceUrls: record.sourceUrls || [record.sourceUrl],
-      fieldSources: record.fieldSources || {} }, $setOnInsert: { id: record.id, jobId, sourceUrl: record.sourceUrl } },
+    filter: record.itemKey ? { jobId, itemKey: record.itemKey } : { jobId, sourceUrl: record.sourceUrl, itemKey: null },
+    update: { $set: { sourceUrl: record.sourceUrl, data: record.data, extractedAt: record.extractedAt, sourceUrls: record.sourceUrls || [record.sourceUrl],
+      fieldSources: record.fieldSources || {} }, $setOnInsert: { id: record.id, jobId, itemKey: record.itemKey ?? null } },
     upsert: true,
   } })));
 }
