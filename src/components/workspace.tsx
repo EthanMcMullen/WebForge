@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { RefreshScheduleEditor } from "@/components/refresh-schedule-editor";
 import type { ApiJobResponse, SearchDepth, SourceStrategyType } from "@/lib/types";
 import { isExpectedScrapeCap } from "@/lib/run-presentation";
 import type { WorkspaceHandoff } from "@/lib/workspace-handoff";
@@ -51,6 +52,13 @@ const searchDepthOptions: Array<{
   { value: "deep", label: "Deep", range: "Up to 12 records", combinedRange: "Up to 12 source pages", hint: "5 searches · 12 scrapes max" },
 ];
 
+function describeRefreshInterval(minutes: number): string {
+  if (minutes % 10_080 === 0) return `every ${minutes / 10_080}w`;
+  if (minutes % 1_440 === 0) return `every ${minutes / 1_440}d`;
+  if (minutes % 60 === 0) return `every ${minutes / 60}h`;
+  return `every ${minutes}m`;
+}
+
 export function Workspace({ initialHandoff = null }: { initialHandoff?: WorkspaceHandoff | null }) {
   const [jobs, setJobs] = useState<ApiJobResponse[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -64,6 +72,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
   const [accessMessage, setAccessMessage] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editInterval, setEditInterval] = useState("");
+  const [editRefreshPaused, setEditRefreshPaused] = useState(false);
   const [editSearchDepth, setEditSearchDepth] = useState<SearchDepth>("balanced");
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
@@ -312,6 +321,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
     setApiSettingsJobId(selected.id);
     setEditName(selected.name);
     setEditInterval(selected.refresh_interval ? String(selected.refresh_interval) : "");
+    setEditRefreshPaused(selected.refresh_paused);
     setEditSearchDepth(selected.search_depth);
     setDeleteArmed(false);
     setApiSettingsOpen(true);
@@ -322,11 +332,12 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
     const targetId = apiSettingsJobId;
     setBusy(true);
     try {
+      const scheduleChanged = editInterval !== (selected.refresh_interval ? String(selected.refresh_interval) : "") || editRefreshPaused !== selected.refresh_paused;
       const response = await fetch(`/api/jobs/${targetId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: editName.trim(),
-          refresh_interval: editInterval ? Number(editInterval) : null,
+          ...(scheduleChanged ? { refresh_interval: editInterval ? Number(editInterval) : null, refresh_paused: editInterval ? editRefreshPaused : false } : {}),
           search_depth: editSearchDepth,
         }),
       });
@@ -337,6 +348,27 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
       setMessage("API settings saved.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save API settings."); }
     finally { setBusy(false); }
+  }
+
+  async function setAutomaticRefreshPaused(paused: boolean) {
+    if (!selected?.refresh_interval) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/jobs/${selected.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_paused: paused }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || `Could not ${paused ? "pause" : "resume"} automatic refresh.`);
+      await loadJobs(selected.id);
+      setMessage(paused ? "Automatic refresh paused. Manual refresh is still available." : "Automatic refresh resumed and the next run was scheduled.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update automatic refresh.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function removeApi() {
@@ -367,7 +399,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
 
   if (accessState !== "unlocked") return (
     <main className="access-screen"><section className="access-card panel">
-      <div className="brand-mark">W</div>
+      <div className="brand-mark">WF</div>
       <h1>{accessState === "checking" ? "Opening workspace" : accessState === "missing" ? "Workspace access needs setup" : "Unlock WebForge"}</h1>
       {accessState === "locked" ? <form onSubmit={(event) => { event.preventDefault(); void unlockWorkspace(); }}>
         <label className="input-label" htmlFor="access-token">Access token</label>
@@ -381,7 +413,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
   return (
     <div className="shell">
       <aside className="sidebar">
-        <Link className="brand brand-button" href="/"><div className="brand-mark">W</div><div><strong>WebForge</strong><span>API workbench</span></div></Link>
+        <Link className="brand brand-button" href="/"><div className="brand-mark">WF</div><div><strong>WebForge</strong><span>API workbench</span></div></Link>
         <div className="sidebar-section-label">Workspace</div>
         <button className={`nav-item ${view === "dashboard" ? "active" : ""}`} onClick={() => { setSelectedId(null); setView("dashboard"); }}><span className="nav-icon">D</span> Dashboard</button>
         <button className={`nav-item ${view === "library" ? "active" : ""}`} onClick={() => setView("library")}><span className="nav-icon">L</span> Library</button>
@@ -508,7 +540,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
 
             {strategy === "provided_urls" && <div className="seed-block"><label className="input-label" htmlFor="sources">Sources</label><textarea id="sources" rows={3} value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="One public URL per line" /></div>}
             <label className="field-option"><input type="checkbox" checked={combineSources} onChange={(event) => setCombineSources(event.target.checked)} /><span><strong>Combine sources into one record</strong><small>Use multiple pages for one item, such as Apple specs and an independent benchmark.</small></span></label>
-            <div className="interval-row"><label className="input-label" htmlFor="interval">Refresh<span>Minutes, or blank for manual</span></label><input id="interval" className="text-input interval-input" type="number" min="15" value={refreshInterval} onChange={(event) => setRefreshInterval(event.target.value)} placeholder="Manual" /></div>
+            <RefreshScheduleEditor id="interval" value={refreshInterval} onChange={setRefreshInterval} />
             <div className="example-row"><span>Try:</span>{quickStarts.map((item) => <button key={item.label} type="button" onClick={() => setUserRequest(item.request)}>{item.label}</button>)}</div>
             <div className="composer-footer"><button className="primary-button" onClick={createJob} disabled={busy || userRequest.trim().length < 10 || !config?.planner_ready || !config?.database_ready}>{busy ? "Planning..." : "Propose fields"}</button>
               <span>{userRequest.trim().length}/10 chars minimum{!config ? " · Checking service settings..." : !config.database_ready ? " · Add MONGODB_URI to the server and restart WebForge." : !config.planner_ready ? " · Add OPENAI_API_KEY to the server and restart WebForge." : ""}</span></div>
@@ -526,6 +558,27 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
                 {selected.source_strategy.type === "automatic" && <span>{selected.search_depth} search</span>}
                 <span>{selected.refresh_paused ? "Refresh paused" : selected.refresh_interval ? `Refreshes every ${selected.refresh_interval}m` : "Manual refresh"}</span>
                 {selected.combine_sources && <span>Combined record</span>}
+              </div>
+            </section>
+
+            <section className="refresh-control-panel panel" aria-label="Refresh controls">
+              <div className="refresh-control-copy">
+                <p className="section-kicker">Refresh</p>
+                <div className="refresh-control-title"><h3>{selected.refresh_interval ? "Automatic refresh" : "Manual refresh"}</h3><span className={selected.refresh_interval ? selected.refresh_paused ? "paused" : "active" : "manual"}>{selected.refresh_interval ? selected.refresh_paused ? "Paused" : "Active" : "Manual"}</span></div>
+                <p>{selected.refresh_interval
+                  ? selected.refresh_paused
+                    ? `The ${describeRefreshInterval(selected.refresh_interval)} schedule is paused. You can still refresh manually.`
+                    : selected.next_refresh_at
+                      ? `${describeRefreshInterval(selected.refresh_interval)} · Next run ${new Date(selected.next_refresh_at).toLocaleString()}`
+                      : `${describeRefreshInterval(selected.refresh_interval)} · The next run will be scheduled when the current run finishes.`
+                  : "Records change only when you click Refresh now. No scheduled credits are spent."}</p>
+                {selected.refresh_interval && !config?.worker_online && <small>Automatic refresh needs the worker. Start <code>npm run worker</code>.</small>}
+                {selected.refresh_paused && selected.refresh_failures >= 2 && <small>Paused after two scheduled runs made no usable progress.</small>}
+              </div>
+              <div className="refresh-control-actions">
+                <button className="primary-button" onClick={() => void refreshJob()} disabled={busy || selected.status === "awaiting_fields" || !config?.extraction_ready || ["queued", "discovering", "scraping", "extracting", "storing"].includes(selected.status)}>{busy ? "Working..." : selected.status === "planned" ? "Run now" : "Refresh now"}</button>
+                {selected.refresh_interval && <button className="ghost-button" onClick={() => void setAutomaticRefreshPaused(!selected.refresh_paused)} disabled={busy || ["queued", "discovering", "scraping", "extracting", "storing"].includes(selected.status)}>{selected.refresh_paused ? "Resume schedule" : "Pause schedule"}</button>}
+                <button className="ghost-button" onClick={openApiSettings} disabled={busy}>Edit schedule</button>
               </div>
             </section>
 
@@ -615,8 +668,7 @@ export function Workspace({ initialHandoff = null }: { initialHandoff?: Workspac
                   {searchDepthOptions.map((option) => <option key={option.value} value={option.value}>{option.label} — {option.hint}</option>)}
                 </select>
               </>}
-              <label className="input-label settings-interval-label" htmlFor="api-interval">Refresh<span>Minutes, or blank for manual</span></label>
-              <input id="api-interval" className="text-input interval-input" type="number" min="15" value={editInterval} onChange={(event) => setEditInterval(event.target.value)} placeholder="Manual" />
+              <RefreshScheduleEditor id="api-interval" value={editInterval} onChange={(value) => { setEditInterval(value); setEditRefreshPaused(false); }} />
               <div className="settings-editor-actions"><button className="ghost-button" onClick={() => {
                 setName(selected.name + " revised");
                 setUserRequest(selected.user_request);

@@ -1,6 +1,7 @@
 node_modules/
 .next/
 .data/
+.firecrawl/
 .npm-cache/
 .env.local
 .env*
