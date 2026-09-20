@@ -39,6 +39,34 @@ test("category snippets expose individual product links without scraping the cat
   assert.equal(seen.has("https://www.walmart.com/c/kp/golden-delicious"), false);
 });
 
+test("priced discovery skips search and category pages but retains product details", () => {
+  const results = [
+    { url: "https://www.amazon.com/airpods-3/s?k=airpods+3" },
+    { url: "https://www.amazon.com/clp/B0D1WXVQTN", description:
+      "[AirPods 3](https://www.amazon.com/dp/B09JQMJHXY)" },
+    { url: "https://shop.example/category/headphones" },
+    { url: "https://shop.example/products/headphones-3" },
+  ];
+  const candidates = filterCandidates(results, [], new Set(), 5, true, true);
+  assert.deepEqual(candidates.map((item) => item.url), [
+    "https://www.amazon.com/dp/B0D1WXVQTN",
+    "https://www.amazon.com/dp/B09JQMJHXY",
+    "https://shop.example/products/headphones-3",
+  ]);
+  assert.equal(candidates[0].parentUrl, "https://www.amazon.com/clp/B0D1WXVQTN");
+});
+
+test("a product landing result with an ASIN becomes a reviewable detail candidate", () => {
+  const landing = "https://www.amazon.com/clp/B0D1WXVQTN";
+  const title = "Apple AirPods (3rd Generation) Wireless Ear Buds";
+  const candidates = filterCandidates([{ url: landing, title }], [], new Set(), 5, false, true);
+  assert.deepEqual(candidates, [{
+    url: "https://www.amazon.com/dp/B0D1WXVQTN", title, description: undefined, parentUrl: landing,
+  }]);
+  assert.deepEqual(filterCandidates([{ url: "https://www.amazon.com/clp/headphones", title }],
+    [], new Set(), 5, false, true), []);
+});
+
 test("source review accepts only known unique result indices", () => {
   const candidates = [
     { url: "https://www.walmart.com/ip/apple-tree", title: "Golden Delicious Apple Tree" },

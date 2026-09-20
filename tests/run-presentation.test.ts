@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { presentRunResult } from "../src/lib/run-presentation.ts";
+import { isExpectedScrapeCap, presentRunResult } from "../src/lib/run-presentation.ts";
 
 test("a successful automatic fallback does not show a job error", () => {
   const result = presentRunResult({
@@ -34,4 +34,13 @@ test("automatic run is ready after recovering a complete record from a later sou
     stopReason: null, errors: ["first product page had no verifiable price"], expectedCap: false });
   assert.equal(result.outcome, "ready");
   assert.equal(result.stopReason, null);
+});
+
+test("a successful automatic run at its planned scrape cap has no warning, even after vision fallback", () => {
+  const legacyReason = "Stopped at the 6-scrape balanced search-depth limit. Vision fallback recovered 1 source from page screenshots.";
+  assert.equal(isExpectedScrapeCap(legacyReason), true);
+  assert.equal(isExpectedScrapeCap("Stopped at the 6-scrape balanced search-depth limit. Missing fields across sources: price."), false);
+  const result = presentRunResult({ automatic: true, hasRecords: true, savedRecords: 3,
+    stopReason: legacyReason, errors: ["https://example.com/failed: unverified price"], expectedCap: true });
+  assert.deepEqual(result, { outcome: "ready", stopReason: null, warning: null });
 });

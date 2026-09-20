@@ -1,9 +1,12 @@
 import { normalizePublicUrl } from "./validation.ts";
+import { isAmazonHost, isAmazonProductPage } from "./record-quality.ts";
 import type { SourceCandidate, SourceFailureCode } from "./types.ts";
 
 export const DEFAULT_BLOCKED_DOMAINS = ["instagram.com", "facebook.com"];
-const LIST_PATH = /\/(search|search-results|category|categories|collections|tags?)\/?$/i;
+const LIST_PATH = /\/(?:search|search-results|category|categories|collections|tags?)(?:\/|$)/i;
 const KNOWN_CATEGORY_PATH = /^\/c\/(?:kp|brand)\//i;
+const AMAZON_LIST_PATH = /^\/(?:s|clp|gp\/browse|b)(?:\/|$)/i;
+const AMAZON_ASIN_LANDING_PATH = /^\/clp\/(B[A-Z0-9]{9}|[0-9]{10})\/?$/i;
 const MARKDOWN_LINK = /\[([^\]]{3,200})\]\((https?:\/\/[^\s)]+)\)/g;
 
 export function domainOf(value: string): string | null {
@@ -15,27 +18,46 @@ export function isBlockedDomain(host: string, blocked: string[]): boolean {
 }
 export function filterCandidates(
   results: SourceCandidate[], blocked: string[], seen: Set<string>, max: number, allowLists = false,
+  priceRequested = false,
 ): SourceCandidate[] {
   const added: SourceCandidate[] = [];
   if (max <= 0) return added;
   const add = (candidate: SourceCandidate) => {
-    const url = normalizePublicUrl(candidate.url);
+    let url = normalizePublicUrl(candidate.url);
     if (!url || seen.has(url)) return;
     const host = domainOf(url);
     if (!host || isBlockedDomain(host, blocked)) return;
-    const path = new URL(url).pathname;
-    if (!allowLists && (LIST_PATH.test(path) || KNOWN_CATEGORY_PATH.test(path))) return;
+    let parentUrl = candidate.parentUrl;
+    let path = new URL(url).pathname;
+    // Search providers sometimes label a specific product with an Amazon
+    // landing URL. Its existing ASIN identifies the corresponding detail URL;
+    // source review and the usual ASIN/price checks still validate the result.
+    const asin = priceRequested && isAmazonHost(host) ? path.match(AMAZON_ASIN_LANDING_PATH)?.[1] : null;
+    if (asin) {
+      parentUrl = url;
+      const detail = new URL(url);
+      detail.pathname = `/dp/${asin.toUpperCase()}`;
+      detail.search = "";
+      url = detail.toString();
+      path = detail.pathname;
+    }
+    if (seen.has(url)) return;
+    const knownListing = LIST_PATH.test(path) || KNOWN_CATEGORY_PATH.test(path) ||
+      (isAmazonHost(host) && AMAZON_LIST_PATH.test(path));
+    if ((priceRequested || !allowLists) && knownListing) return;
+    if (priceRequested && isAmazonHost(host) && !isAmazonProductPage(url)) return;
     seen.add(url);
-    added.push({ url, title: candidate.title?.slice(0, 200), description: candidate.description?.slice(0, 300), parentUrl: candidate.parentUrl });
+    added.push({ url, title: candidate.title?.slice(0, 200), description: candidate.description?.slice(0, 300), parentUrl });
   };
   for (const result of results) {
     if (added.length >= max) break;
     add(result);
     const parentUrl = normalizePublicUrl(result.url);
     const parentPath = parentUrl ? new URL(parentUrl).pathname : "";
-    if (added.length >= max || !result.description ||
-        !(LIST_PATH.test(parentPath) || KNOWN_CATEGORY_PATH.test(parentPath))) continue;
     const parentHost = domainOf(parentUrl || "");
+    if (added.length >= max || !result.description ||
+        !(LIST_PATH.test(parentPath) || KNOWN_CATEGORY_PATH.test(parentPath) ||
+          (parentHost && isAmazonHost(parentHost) && AMAZON_LIST_PATH.test(parentPath)))) continue;
     for (const match of result.description.matchAll(MARKDOWN_LINK)) {
       if (added.length >= max) break;
       // Search snippets may contain product links inside a category result.

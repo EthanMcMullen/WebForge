@@ -53,6 +53,91 @@ test("full pipeline rejects a wrong retailer record after extraction", async () 
   assert.equal(result.runSummary?.totalFailures, 1);
 });
 
+test("vision bookkeeping marks a successful screenshot source", async () => {
+  const api = job("provided_urls");
+  await store.saveApiJob(api);
+  const originalKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "test-key";
+  try {
+    const result = await runApiJob(api.id, {
+      async discover() { return []; },
+      async extract() { throw new Error("Firecrawl returned no usable fields."); },
+    }, async () => ({ action: "stop", query: null }), async (_request, candidates) => candidates,
+    undefined, async () => true, async () => null, {
+      capture: async () => ({ screenshotUrl: "https://shots.example/apple.png" }),
+      readImage: async () => ({ data: { ...apple }, identity: "Golden Delicious apple at Walmart" }),
+    });
+    assert.equal(result.runSummary?.visionAttempts, 1);
+    assert.equal(result.runSummary?.visionRecoveries, 1);
+    assert.equal(result.runSummary?.scrapeCalls, 2);
+    assert.deepEqual(result.runSummary?.attempts?.filter((attempt) => attempt.code === "SAVED")
+      .map((attempt) => [attempt.visionAttempted, attempt.viaVision]), [[true, true]]);
+  } finally {
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
+  }
+});
+
+test("vision bookkeeping marks a screenshot attempt that did not recover data", async () => {
+  const api = job("provided_urls");
+  await store.saveApiJob(api);
+  const originalKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "test-key";
+  try {
+    const result = await runApiJob(api.id, {
+      async discover() { return []; },
+      async extract() { throw new Error("Firecrawl returned no usable fields."); },
+    }, async () => ({ action: "stop", query: null }), async (_request, candidates) => candidates,
+    undefined, async () => true, async () => null, {
+      capture: async () => { throw new Error("Vision fallback found no page screenshot."); },
+    });
+    assert.equal(result.runSummary?.visionAttempts, 1);
+    assert.equal(result.runSummary?.visionRecoveries, 0);
+    assert.equal(result.runSummary?.attempts?.find((attempt) => attempt.stage === "scrape")?.visionAttempted, true);
+  } finally {
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
+  }
+});
+
+test("automatic vision recovery at the planned scrape cap stays ready without a banner", async () => {
+  const api = job("automatic", "Collect public product records");
+  api.searchDepth = "balanced";
+  api.sourceStrategy.searchQueries = ["public products"];
+  await store.saveApiJob(api);
+  const originalKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "test-key";
+  try {
+    const result = await runApiJob(api.id, {
+      async discover() { return [1, 2, 3, 4, 5].map((index) => ({ url: `https://example.com/item/${index}` })); },
+      async extract(url) {
+        if (url.endsWith("/1") || url.endsWith("/2")) throw new Error("Firecrawl returned no usable fields.");
+        return { data: { item_name: `Item ${url.at(-1)}`, source_url: url }, identity: `Item ${url.at(-1)}` };
+      },
+    }, async () => ({ action: "stop", query: null }), async (_request, candidates) => candidates,
+    undefined, async () => true, async () => null, {
+      capture: async (url) => {
+        if (url.endsWith("/2")) throw new Error("Vision fallback found no page screenshot.");
+        return { screenshotUrl: "https://shots.example/item-1.png" };
+      },
+      readImage: async () => ({ data: { item_name: "Item 1" }, identity: "Item 1" }),
+    });
+    assert.equal(result.runSummary?.scrapeCalls, 6);
+    assert.equal(result.runSummary?.savedRecords, 3);
+    assert.equal(result.runSummary?.visionAttempts, 2);
+    assert.equal(result.runSummary?.visionRecoveries, 1);
+    assert.equal(result.runSummary?.skippedSources, 1);
+    assert.equal(result.runSummary?.outcome, "ready");
+    assert.equal(result.runSummary?.stopReason, null);
+    assert.equal(result.status, "ready");
+    assert.equal(result.error, null);
+    assert.equal(result.runSummary?.attempts?.some((attempt) => attempt.visionAttempted && attempt.code !== "SAVED"), true);
+  } finally {
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
+  }
+});
+
 test("collection list page saves separate records and source decisions", async () => {
   const api = job("automatic", "List all ECE 1A courses at Waterloo");
   api.recordScope = "collection";
@@ -213,6 +298,29 @@ test("price job rejects null prices before record review or storage", async () =
   assert.equal(reviewed, false);
   assert.equal(result.status, "failed");
   assert.equal(await store.countApiRecords(api.id), 0);
+});
+
+test("price discovery reviews an ASIN landing result as a product detail page", async () => {
+  const api = job("automatic", "price of airpods 3 on amazon");
+  api.schema = { product_name: { type: "string" }, price: { type: "number" },
+    currency: { type: "string" }, source_url: { type: "string" } };
+  api.sourceStrategy.searchQueries = ["AirPods 3 price site:amazon.com"];
+  await store.saveApiJob(api);
+  const extracted: string[] = [];
+  const result = await runApiJob(api.id, {
+    async discover() { return [{ url: "https://www.amazon.com/clp/B0D1WXVQTN",
+      title: "Apple AirPods (3rd Generation) Wireless Ear Buds" }]; },
+    async extract(url) {
+      extracted.push(url);
+      return { data: { product_name: "Apple AirPods (3rd Generation)", price: 99.99,
+        currency: "USD", source_url: url }, identity: "Apple AirPods (3rd Generation)" };
+    },
+  }, async () => ({ action: "stop", query: null }), async (_request, candidates) => candidates,
+  undefined, async () => true, async () => null);
+  assert.deepEqual(extracted, ["https://www.amazon.com/dp/B0D1WXVQTN"]);
+  assert.equal(result.status, "ready");
+  assert.equal(result.runSummary?.scrapeCalls, 1);
+  assert.equal(result.runSummary?.skippedSources, 0);
 });
 
 test("failed refresh preserves previously saved records", async () => {

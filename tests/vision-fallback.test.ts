@@ -3,7 +3,7 @@ import test from "node:test";
 import { RUN_LIMITS } from "../src/lib/run-budget.ts";
 import { classifySourceError } from "../src/lib/source-support.ts";
 import type { ApiRecordSchema } from "../src/lib/types.ts";
-import { isVisionFallbackEligible, visionFallbackEnabled, visionModel } from "../src/lib/vision-fallback.ts";
+import { isVisionFallbackEligible, verifyVisionPriceEvidence, visionFallbackEnabled, visionModel } from "../src/lib/vision-fallback.ts";
 import { withVisionFallback } from "../src/lib/providers/vision.ts";
 import type { ExtractionProvider } from "../src/lib/providers/firecrawl.ts";
 
@@ -55,15 +55,77 @@ test("successful scrape never triggers the vision fallback", async () => {
 test("empty scrape output falls back to the screenshot reader", async () => {
   withKey();
   try {
+    let attempts = 0;
     const provider = withVisionFallback(
       baseProvider(async () => { throw new Error("Firecrawl returned no usable fields."); }),
-      visionDeps,
+      { ...visionDeps, requestAttempt: () => { attempts++; return true; } },
     );
     const result = await provider.extract("https://shop.example/grinder", schema, undefined, "Track espresso prices");
     assert.equal(result.data.product, "Entry espresso machine");
     assert.equal(result.data.source_url, "https://shop.example/grinder");
     assert.equal(result.viaVision, true);
+    assert.equal(attempts, 1);
   } finally { restoreEnv(); }
+});
+
+test("a missing price on a non-Amazon product page tries vision", async () => {
+  withKey();
+  try {
+    let captures = 0;
+    const pricedSchema: ApiRecordSchema = {
+      product_name: { type: "string" }, price: { type: "number" }, source_url: { type: "string" },
+    };
+    const url = "https://shop.example/products/headphones-3";
+    const provider = withVisionFallback(baseProvider(async () => ({
+      data: { product_name: "Headphones 3", price: null, source_url: url }, identity: "Headphones 3",
+    })), {
+      capture: async () => { captures++; return { screenshotUrl: "https://shots.example/price.png" }; },
+      readImage: async () => ({ data: { product_name: "Headphones 3", price: 49.99, source_url: url }, identity: "Headphones 3" }),
+    });
+    const result = await provider.extract(url, pricedSchema);
+    assert.equal(result.data.price, 49.99);
+    assert.equal(result.viaVision, true);
+    assert.equal(captures, 1);
+  } finally { restoreEnv(); }
+});
+
+test("unverified price retries with vision, but an Amazon listing never does", async () => {
+  withKey();
+  try {
+    let captures = 0;
+    const pricedSchema: ApiRecordSchema = { price: { type: "number" }, source_url: { type: "string" } };
+    const provider = withVisionFallback(baseProvider(async () => {
+      throw new Error("Price was not supported by source text.");
+    }), {
+      capture: async () => { captures++; return { screenshotUrl: "https://shots.example/price.png" }; },
+      readImage: async () => ({ data: { price: 49.99 }, identity: "Headphones 3" }),
+    });
+    assert.equal((await provider.extract("https://shop.example/item/3", pricedSchema)).viaVision, true);
+    await assert.rejects(provider.extract("https://www.amazon.com/airpods-3/s?k=airpods+3", pricedSchema), /not supported/);
+    assert.equal(captures, 1);
+  } finally { restoreEnv(); }
+});
+
+test("a screenshot without the requested price does not count as recovery", async () => {
+  withKey();
+  try {
+    const schemaWithPrice: ApiRecordSchema = { product_name: { type: "string" }, price: { type: "number" } };
+    const provider = withVisionFallback(baseProvider(async () => ({
+      data: { product_name: "Headphones 3", price: null }, identity: "Headphones 3",
+    })), {
+      capture: async () => ({ screenshotUrl: "https://shots.example/price.png" }),
+      readImage: async () => ({ data: { product_name: "Headphones 3", price: null }, identity: "Headphones 3" }),
+    });
+    await assert.rejects(provider.extract("https://shop.example/products/headphones-3", schemaWithPrice), /Required price is missing/);
+  } finally { restoreEnv(); }
+});
+
+test("visual price evidence must match the extracted item and amount", () => {
+  const data = { product_name: "Headphones 3", price: 49.99 };
+  assert.doesNotThrow(() => verifyVisionPriceEvidence(data, undefined, "Headphones 3 current price $49.99"));
+  assert.throws(() => verifyVisionPriceEvidence(data, undefined, "Headphones 2 current price $49.99"), /not supported/);
+  assert.throws(() => verifyVisionPriceEvidence(data, undefined, "Headphones 3 current price $59.99"), /not supported/);
+  assert.throws(() => verifyVisionPriceEvidence(data, undefined, null), /not supported/);
 });
 
 test("fatal and validation failures never trigger the vision fallback", async () => {
@@ -136,7 +198,24 @@ test("vision output with no usable fields keeps the original scrape error", asyn
   } finally { restoreEnv(); }
 });
 
-test("vision eligibility covers extraction-content failures only", () => {
+test("blocked pages are worth one screenshot: bot walls may render visually", async () => {
+  withKey();
+  try {
+    const blocked = Object.assign(new Error("Access denied."), { status: 403 });
+    assert.equal(isVisionFallbackEligible(blocked), true);
+    let captures = 0;
+    const provider = withVisionFallback(
+      baseProvider(async () => { throw blocked; }),
+      { capture: async () => { captures++; return { screenshotUrl: "https://shots.example/1.png" }; }, readImage: visionDeps.readImage },
+    );
+    const result = await provider.extract("https://www.amazon.com/dp/B0DEXAMPLE1", schema, undefined, "iPhone 17 price on Amazon");
+    assert.equal(result.data.product, "Entry espresso machine");
+    assert.equal(result.viaVision, true);
+    assert.equal(captures, 1);
+  } finally { restoreEnv(); }
+});
+
+test("vision eligibility covers extraction failures and bot blocks, not validation gates", () => {
   assert.equal(isVisionFallbackEligible(new Error("Firecrawl returned no usable fields.")), true);
   assert.equal(isVisionFallbackEligible(new Error("Firecrawl returned an incomplete record (1/4 fields).")), true);
   assert.equal(isVisionFallbackEligible(new Error("socket hang up")), true);

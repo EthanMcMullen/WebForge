@@ -4,16 +4,16 @@ import { countApiRecords, finishRefreshSchedule, getApiJob, getLatestRun, isRunC
 import { cleanSourceUrls, type CreateApiJobData } from "./validation";
 import type { ApiJob, ApiRecord, RunSummary, SourceAttempt, SourceCandidate, SourceFailureCode } from "./types";
 import { firecrawlProvider, type ExtractionProvider } from "./providers/firecrawl";
-import { withVisionFallback } from "./providers/vision";
+import { withVisionFallback, type VisionFallbackDeps } from "./providers/vision";
 import { DEFAULT_BLOCKED_DOMAINS, classifySourceError, domainOf, filterCandidates, isBlockedDomain, isFatalFailure } from "./source-support";
 import { RUN_LIMITS, canRecover, canSearch, plannedSearchQueries, runLimitsForSearchDepth, withinDeadline } from "./run-budget";
 import { recoverSearchQuery, validateRecoveryDecision, type RecoveryInput, type RecoveryDecision } from "./source-recovery";
 import { reviewSourceCandidates } from "./source-review";
-import { presentRunResult } from "./run-presentation";
+import { isExpectedScrapeCap, presentRunResult } from "./run-presentation";
 import { missingPlannedQueries, prioritizeSearchBatches, type PlannedCandidate, type SearchBatch } from "./discovery-plan";
 import { reviewExtractedRecord } from "./record-review";
 import { suggestSourceCorrection, validateSourceSuggestion } from "./source-correction";
-import { validateRecordQuality } from "./record-quality";
+import { isAmazonHost, validateRecordQuality } from "./record-quality";
 import { addCombinedSource, createCombinedRecord } from "./source-merge";
 
 export async function createApiJob(input: CreateApiJobData): Promise<ApiJob> {
@@ -67,6 +67,7 @@ export async function runApiJob(
   reviewRecord: (request: string, data: ApiRecord["data"], sourceUrl: string, title?: string, plannedQuery?: string | null, identity?: string | null,
     combineSources?: boolean, priorIdentity?: string | null, priorData?: ApiRecord["data"] | null, collection?: boolean) => Promise<boolean> = reviewExtractedRecord,
   suggestCorrection: (request: string, queries: string[]) => Promise<string | null> = suggestSourceCorrection,
+  visionDeps: Pick<VisionFallbackDeps, "capture" | "readImage"> = {},
 ): Promise<ApiJob> {
   const job = await getApiJob(id);
   if (!job) throw new Error("API job not found.");
@@ -81,6 +82,7 @@ export async function runApiJob(
     id: queuedRun?.id || crypto.randomUUID(), jobId: id, startedAt: previous?.startedAt || new Date(startMs).toISOString(), finishedAt: null,
     searchCalls: previous?.searchCalls || 0, scrapeCalls: previous?.scrapeCalls || 0,
     recoveryCalls: previous?.recoveryCalls || 0, consecutiveFailures: previous?.consecutiveFailures || 0,
+    visionAttempts: previous?.visionAttempts || 0, visionRecoveries: previous?.visionRecoveries || 0,
     totalFailures: previous?.totalFailures || 0, savedRecords: previous?.savedRecords || 0,
     skippedSources: previous?.skippedSources || 0, outcome: "running", stopReason: null,
     trigger: queuedRun?.trigger || "manual", attempts: previous?.attempts || [],
@@ -123,14 +125,19 @@ export async function runApiJob(
   let collectionEnrichmentAttempted = false;
   // Vision fallback budget: at most `limits.visionFallbacks` screenshot reads
   // per run. The extra screenshot scrape is counted in `scrapeCalls`.
-  let visionRemaining = limits.visionFallbacks;
-  let visionRecoveries = 0;
+  let visionRemaining = Math.max(0, limits.visionFallbacks - (summary.visionAttempts || 0));
+  let visionAttemptedForCurrentSource = false;
   const extracting = withVisionFallback(provider, {
-    requestAttempt: () => {
+    ...visionDeps,
+    requestAttempt: async () => {
       if (visionRemaining <= 0) return false;
       if (summary.scrapeCalls >= limits.scrapes) return false;
       if (!withinDeadline(startMs)) return false;
       visionRemaining--;
+      summary.scrapeCalls++;
+      summary.visionAttempts = (summary.visionAttempts || 0) + 1;
+      visionAttemptedForCurrentSource = true;
+      await saveRunSummary(summary);
       return true;
     },
   });
@@ -147,8 +154,9 @@ export async function runApiJob(
     await setStatus(job, "discovering");
     try {
       const results = await provider.discover(query, { excludedDomains: [...blocked], limit: 5 });
-      const next = filterCandidates(results, [...blocked], new Set(seen), 5, job.recordScope === "collection");
-      const candidates = new Set(next.map((item) => item.url));
+      const next = filterCandidates(results, [...blocked], new Set(seen), 5,
+        job.recordScope === "collection", Boolean(job.schema.price));
+      const candidates = new Set(next.flatMap((item) => [item.url, item.parentUrl].filter((url): url is string => Boolean(url))));
       for (const result of results) if (!candidates.has(result.url)) {
         attempt({ url: result.url, query, stage: "candidate_filter", code: "FILTERED", title: result.title });
       }
@@ -224,6 +232,7 @@ export async function runApiJob(
       }
       const candidate = queue.shift();
       if (candidate) {
+        visionAttemptedForCurrentSource = false;
         const host = domainOf(candidate.url);
         if (host && isBlockedDomain(host, [...blocked])) {
           summary.skippedSources++;
@@ -296,11 +305,6 @@ export async function runApiJob(
           }
           const extracted = await extracting.extract(candidate.url, job.schema, candidate.title, job.userRequest, Boolean(combined));
           const { data, identity } = extracted;
-          if (extracted.viaVision) {
-            visionRecoveries++;
-            summary.scrapeCalls++;
-            await saveRunSummary(summary);
-          }
           if (await cancelled()) { stopReason = "Run cancelled."; break; }
           validateRecordQuality({ request: job.userRequest, schema: job.schema, data,
             sourceUrl: candidate.url, sourceTitle: extracted.sourceTitle, canonicalUrl: extracted.canonicalUrl,
@@ -328,7 +332,9 @@ export async function runApiJob(
           }
           attempt({ url: candidate.url, query: candidate.plannedQuery, stage: "save", code: "SAVED",
             title: candidate.title, fieldsPresent: Object.keys(data).filter((key) => key !== "source_url" && data[key] !== null),
-            fieldsMissing: Object.keys(data).filter((key) => key !== "source_url" && data[key] === null) });
+            fieldsMissing: Object.keys(data).filter((key) => key !== "source_url" && data[key] === null),
+            visionAttempted: visionAttemptedForCurrentSource, viaVision: Boolean(extracted.viaVision) });
+          if (extracted.viaVision) summary.visionRecoveries = (summary.visionRecoveries || 0) + 1;
           if (candidate.plannedQuery) completedQueries.add(candidate.plannedQuery);
           summary.consecutiveFailures = 0;
           await saveRunSummary(summary);
@@ -337,12 +343,13 @@ export async function runApiJob(
           summary.totalFailures++;
           summary.consecutiveFailures++;
           summary.skippedSources++;
-          await saveRunSummary(summary);
           failures.push({ domain: host || "unknown", code });
           attempt({ url: candidate.url, query: candidate.plannedQuery, stage: code === "IRRELEVANT_RECORD" ? "record_review" :
             code === "MISSING_REQUIRED_FIELD" || code === "UNVERIFIED_PRICE" || code === "SOURCE_IDENTITY_MISMATCH" ? "quality_check" : "scrape",
-            code, title: candidate.title });
-          const canTryListing = code === "UNVERIFIED_PRICE" && candidate.parentUrl && !seen.has(candidate.parentUrl);
+            code, title: candidate.title, visionAttempted: visionAttemptedForCurrentSource });
+          await saveRunSummary(summary);
+          const canTryListing = code === "UNVERIFIED_PRICE" && candidate.parentUrl &&
+            !isAmazonHost(host || "") && !seen.has(candidate.parentUrl);
           if (canTryListing && candidate.parentUrl) {
             seen.add(candidate.parentUrl);
             queue.unshift({ url: candidate.parentUrl, title: candidate.title, plannedQuery: candidate.plannedQuery });
@@ -486,9 +493,6 @@ export async function runApiJob(
     }
     if (await cancelled()) stopReason = "Run cancelled.";
     const missing = missingPlannedQueries(planned, completedQueries);
-    if (visionRecoveries > 0 && stopReason) {
-      stopReason = `${stopReason} Vision fallback recovered ${visionRecoveries} record${visionRecoveries === 1 ? "" : "s"} from page screenshots.`;
-    }
     if (automatic && summary.savedRecords > 0 && missing.length) {
       const coverage = `No record was updated for ${missing.length} of ${planned.length} planned searches: ${missing.map((query) => query.slice(0, 80)).join("; ")}.`;
       stopReason = stopReason ? `${stopReason} ${coverage}` : coverage;
@@ -501,8 +505,7 @@ export async function runApiJob(
       job.recordCount = existingCount;
       const hasRecords = existingCount > 0;
       summary.finishedAt = new Date().toISOString();
-      const expectedCap = stopReason === `Stopped at the ${limits.scrapes}-scrape ${job.searchDepth} search-depth limit.` &&
-        summary.savedRecords > 0 && errors.length === 0;
+      const expectedCap = isExpectedScrapeCap(stopReason) && summary.savedRecords > 0;
       const presentation = presentRunResult({
         automatic, hasRecords, savedRecords: summary.savedRecords, stopReason, errors, expectedCap,
       });

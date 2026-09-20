@@ -1,6 +1,6 @@
 import type { ApiRecordData, ApiRecordSchema } from "./types.ts";
 
-const AMAZON_PRODUCT_PATH = /\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:[/?]|$)/i;
+const AMAZON_PRODUCT_PATH = /\/(?:dp|gp\/product)\/(B[A-Z0-9]{9}|[0-9]{10})(?:[/?]|$)/i;
 const VARIANTS = [
   ["black", "white", "green", "blue", "red", "pink", "purple", "cream", "silver", "gold", "gray", "grey", "graphite"],
   ["verizon", "unlocked", "at&t", "t-mobile", "sprint"],
@@ -11,12 +11,23 @@ function words(value: string): string {
   return ` ${value.toLowerCase().replace(/[^a-z0-9&+]+/g, " ").replace(/\s+/g, " ").trim()} `;
 }
 
+export function isAmazonHost(host: string): boolean {
+  return host === "amazon.com" || host.endsWith(".amazon.com") ||
+    /^amazon\.[a-z.]+$/.test(host) || /^www\.amazon\.[a-z.]+$/.test(host);
+}
+
+export function isAmazonProductPage(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return isAmazonHost(parsed.hostname.toLowerCase()) && AMAZON_PRODUCT_PATH.test(parsed.pathname);
+  } catch { return false; }
+}
+
 export function validatePriceSource(request: string, schema: ApiRecordSchema, sourceUrl: string): void {
   if (!schema.price) return;
   const url = new URL(sourceUrl);
   const host = url.hostname.toLowerCase();
-  if ((host === "amazon.com" || host.endsWith(".amazon.com") || /^amazon\.[a-z.]+$/.test(host) || /^www\.amazon\.[a-z.]+$/.test(host)) &&
-      !AMAZON_PRODUCT_PATH.test(url.pathname)) {
+  if (isAmazonHost(host) && !isAmazonProductPage(sourceUrl)) {
     throw new Error("Amazon price needs a product detail page.");
   }
 }
@@ -36,7 +47,7 @@ export function validateRecordQuality(input: {
     throw new Error("Required price is missing from the record.");
   }
   const host = new URL(sourceUrl).hostname.toLowerCase();
-  if (host !== "amazon.com" && !host.endsWith(".amazon.com") && !/^amazon\.[a-z.]+$/.test(host) && !/^www\.amazon\.[a-z.]+$/.test(host)) return;
+  if (!isAmazonHost(host)) return;
   if (!schema.price) return;
   const requestedAsin = new URL(sourceUrl).pathname.match(AMAZON_PRODUCT_PATH)?.[1]?.toUpperCase();
   if (!requestedAsin) throw new Error("Amazon price needs a product detail page.");
