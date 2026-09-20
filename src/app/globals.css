@@ -1176,7 +1176,7 @@ td a { color: var(--accent); }
 .company-affiliation strong { font-size: 13px; line-height: 1.15; letter-spacing: -0.02em; }
 .company-school-mark { width: 42px; height: 42px; flex: none; object-fit: contain; }
 .company-school-mark-uoft { height: 48px; }
-.htn-cube { width: 32px; height: 32px; display: grid; place-items: center; flex: none; border-radius: 8px; color: #fff; background: #ef4b53; font-weight: 800; }
+.htn-cube { width: 52px; height: 40px; display: block; flex: none; overflow: hidden; border-radius: 7px; color: transparent; background: #ef4b53 url("https://2015.hackthenorth.com/img/hero-logo.svg") center / 42px auto no-repeat; font-size: 0; }
 
 .company-builder { padding: 112px 0; background: #fff; }
 .company-section-heading > span, .company-founders-copy > span, .company-kicker, .company-final-inner > div > span { display: block; margin-bottom: 16px; color: var(--company-blue); font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; }
