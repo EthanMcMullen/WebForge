@@ -38,7 +38,7 @@ export default function HomePage() {
             <strong>WebForge</strong>
           </Link>
           <nav aria-label="Primary navigation">
-            <a href="#product">Product</a><a href="#platform">Platform</a><a href="#company">Company</a><Link href="/cli">CLI</Link>
+            <a href="#product">Product</a><a href="#platform">Platform</a><a href="#vision">Vision</a><a href="#company">Company</a><Link href="/cli">CLI</Link>
           </nav>
           <div className="company-nav-actions">
             <Link className="company-login" href="/dashboard">Sign in</Link>
@@ -126,44 +126,48 @@ export default function HomePage() {
               {capabilities.map((item) => <article key={item.label}><span>{item.label}</span><h3>{item.title}</h3><p>{item.body}</p></article>)}
             </div>
 
-            <section className="company-visual" aria-labelledby="visual-extraction-title">
+            <section id="vision" className="company-visual" aria-labelledby="visual-extraction-title">
               <div className="company-visual-copy">
-                <span>Visual recovery layer</span>
-                <h2 id="visual-extraction-title">When the HTML lies, read the pixels.</h2>
-                <p>Obfuscated markup, canvas-rendered values, and anti-bot responses can leave a normal scraper with nothing useful. If the page is available in the browser, WebForge falls back to a rendered screenshot and extracts only what is visibly present.</p>
+                <span>Visual data extraction · Fallback layer</span>
+                <h2 id="visual-extraction-title">Robust when the HTML fights back.</h2>
+                <p>WebForge reads structured HTML first. When obfuscated markup, client-rendered values, or anti-bot HTML makes that result unusable, it captures the rendered page and extracts the approved fields from what is visibly present.</p>
                 <div className="company-visual-route" aria-label="Visual extraction fallback sequence">
-                  <div><i className="failed" />DOM extraction<strong>Unusable</strong></div>
+                  <div><i className="failed" />HTML extraction<strong>Unusable</strong></div>
                   <span aria-hidden="true">→</span>
-                  <div><i className="captured" />Screenshot<strong>Captured</strong></div>
+                  <div><i className="captured" />Rendered page<strong>Captured</strong></div>
                   <span aria-hidden="true">→</span>
-                  <div><i className="verified" />Schema + evidence<strong>Verified</strong></div>
+                  <div><i className="verified" />Identity + schema<strong>Verified</strong></div>
                 </div>
-                <small>Fallback only · Same field validation · No invented values</small>
+                <small>Automatic fallback · 2 visual recoveries per run · Same validation rules</small>
               </div>
 
               <div className="company-visual-demo" aria-label="Example of a product page recovered through visual extraction">
                 <div className="company-visual-browser">
-                  <div className="company-visual-browser-bar"><div><i /><i /><i /></div><span>retailer.example / products / ssd</span><b>Rendered</b></div>
+                  <div className="company-visual-browser-bar"><div><i /><i /><i /></div><span>commerce page / samsung-990-pro</span><b>Rendered</b></div>
                   <div className="company-retail-page">
                     <div className="company-retail-search">Search&nbsp;&nbsp; <strong>SSD</strong></div>
                     <div className="company-retail-product">
                       <div className="company-drive-art"><span>990</span><b>PRO</b><small>2TB</small></div>
-                      <div className="company-retail-details"><span>High-performance storage</span><h3>990 PRO NVMe SSD</h3><p>PCIe 4.0 · 2 TB · In stock</p><strong>CAD $545.64</strong></div>
+                      <div className="company-retail-details"><span>Samsung · Internal solid state drives</span><h3>SSD 990 PRO 2TB NVMe</h3><p>PCIe 4.0 · M.2 2280 · 4.7 rating</p><strong>CAD $545.64</strong><small>In stock</small></div>
                     </div>
                     <div className="company-html-failure"><span>×</span><div><b>Markup extraction failed</b><small>Obfuscated product nodes · price missing</small></div></div>
                     <div className="company-vision-scan" aria-hidden="true"><i /><span>VISION FALLBACK</span></div>
+                    <div className="company-vision-target target-title" aria-hidden="true"><span>product</span></div>
+                    <div className="company-vision-target target-price" aria-hidden="true"><span>price</span></div>
+                    <div className="company-vision-target target-stock" aria-hidden="true"><span>availability</span></div>
                   </div>
                 </div>
                 <div className="company-visual-result">
                   <div><span>VISUAL RECORD</span><b><i /> recovered</b></div>
                   <pre><code>{`{
-  "product": "990 PRO NVMe SSD",
+  "product": "Samsung SSD 990 PRO",
   "capacity": "2 TB",
   "price_cad": 545.64,
   "availability": "In stock",
+  "rating": 4.7,
   "extraction_mode": "vision"
 }`}</code></pre>
-                  <p><span>4/4</span> requested fields visible and schema-valid</p>
+                  <p><span>5/5</span> requested fields visible and schema-valid</p>
                 </div>
               </div>
             </section>

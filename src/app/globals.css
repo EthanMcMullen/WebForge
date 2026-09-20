@@ -1241,6 +1241,7 @@ td a { color: var(--accent); }
 .company-retail-details h3 { margin: 7px 0 8px; color: #162438; font-size: 17px; line-height: 1.14; letter-spacing: -0.035em; }
 .company-retail-details p { margin: 0 0 17px; color: #687587; font-size: 8px; }
 .company-retail-details > strong { color: #162438; font-size: 22px; letter-spacing: -0.04em; }
+.company-retail-details > small { display: block; margin-top: 8px; color: #21804f; font-size: 8px; font-weight: 650; }
 .company-html-failure { position: absolute; left: 17px; bottom: 15px; display: flex; align-items: center; gap: 9px; padding: 9px 11px; border: 1px solid #f1c4c4; border-radius: 7px; color: #8e3434; background: rgba(255, 244, 244, 0.94); box-shadow: 0 7px 20px rgba(104, 36, 36, 0.08); }
 .company-html-failure > span { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #d95e5e; font-size: 12px; }
 .company-html-failure div { display: flex; flex-direction: column; gap: 3px; }
@@ -1249,6 +1250,12 @@ td a { color: var(--accent); }
 .company-vision-scan { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, transparent 0 47%, rgba(49, 92, 253, 0.08) 49%, rgba(49, 92, 253, 0.13) 50%, rgba(49, 92, 253, 0.08) 51%, transparent 53%); }
 .company-vision-scan i { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #5278f3; box-shadow: 0 0 12px 3px rgba(49, 92, 253, 0.35); }
 .company-vision-scan span { position: absolute; top: 12px; left: calc(50% + 9px); padding: 4px 6px; border-radius: 3px; color: #fff; background: var(--company-blue); font: 600 6px/1 var(--font-code); letter-spacing: 0.05em; }
+.company-visual { scroll-margin-top: 90px; }
+.company-vision-target { position: absolute; z-index: 2; border: 1px solid #315cfd; border-radius: 4px; box-shadow: 0 0 0 2px rgba(49, 92, 253, 0.12); pointer-events: none; }
+.company-vision-target span { position: absolute; top: -15px; right: -1px; padding: 3px 5px; border-radius: 3px 3px 0 0; color: #fff; background: #315cfd; font: 600 6px/1 var(--font-code); letter-spacing: 0.04em; text-transform: uppercase; }
+.company-vision-target.target-title { top: 134px; right: 20px; width: 43%; height: 43px; }
+.company-vision-target.target-price { top: 214px; right: 21%; width: 22%; height: 35px; }
+.company-vision-target.target-stock { top: 252px; right: 28%; width: 15%; height: 23px; }
 .company-visual-result { position: absolute; right: -24px; bottom: 0; width: min(400px, 76%); overflow: hidden; border: 1px solid #334a66; border-radius: 9px; color: #d3dceb; background: #0b1b2e; box-shadow: 0 20px 45px rgba(9, 27, 49, 0.28); }
 .company-visual-result > div { display: flex; justify-content: space-between; padding: 10px 13px; border-bottom: 1px solid #263d57; color: #71869d; font: 600 7px/1 var(--font-code); }
 .company-visual-result > div b { display: flex; align-items: center; gap: 5px; color: #69d9aa; }
@@ -1348,6 +1355,7 @@ td a { color: var(--accent); }
   .company-retail-product { grid-template-columns: 1fr; gap: 18px; margin-top: 34px; }
   .company-drive-art { width: 64%; height: 92px; }
   .company-retail-details h3 { font-size: 15px; }
+  .company-vision-target { display: none; }
   .company-visual-result { position: relative; right: auto; bottom: auto; width: calc(100% - 20px); margin: -34px 0 0 20px; }
   .company-visual-demo { padding-bottom: 0; }
   .company-capabilities h3 { min-height: 0; margin-top: 32px; }
