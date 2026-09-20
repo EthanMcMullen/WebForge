@@ -280,7 +280,8 @@ textarea { resize: vertical; }
   border-top: 2px solid var(--accent);
 }
 .dashboard-create:hover { border-color: var(--accent); }
-.dashboard-create > span { width: 34px; height: 34px; display: grid; place-items: center; background: var(--accent); color: #ffffff; font-size: 20px; font-weight: 400; border-radius: 3px; flex: none; }
+.dashboard-create > span:first-child { width: 34px; height: 34px; display: grid; place-items: center; background: var(--accent); color: #ffffff; font-size: 20px; font-weight: 400; border-radius: 3px; flex: none; }
+.dashboard-create > span:last-child { min-width: 0; flex: 1; }
 .dashboard-create strong { display: block; font-size: 14px; }
 .dashboard-create small { display: block; margin-top: 4px; font-size: 11.5px; color: var(--muted); }
 
@@ -580,7 +581,7 @@ td a { color: var(--accent); }
 .primary-button { background: #101012; border-color: #101012; color: #fafaf7; }
 .primary-button:hover:not(:disabled) { background: #2b2b30; border-color: #2b2b30; }
 .mode.active { background: #101012; border-color: #101012; color: #fafaf7; }
-.dashboard-create > span { background: #101012; color: #fafaf7; }
+.dashboard-create > span:first-child { background: #101012; color: #fafaf7; }
 .toast { background: #101012; border-color: #101012; border-left: 2px solid var(--accent); color: #fafaf7; }
 .toast button { color: #8e8e89; }
 
