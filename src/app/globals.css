@@ -1177,12 +1177,6 @@ td a { color: var(--accent); }
 .company-school-mark { width: 42px; height: 42px; flex: none; object-fit: contain; }
 .company-school-mark-uoft { height: 48px; }
 .htn-cube { width: 32px; height: 32px; display: grid; place-items: center; flex: none; border-radius: 8px; color: #fff; background: #ef4b53; font-weight: 800; }
-.waterloo-bars { width: 35px; height: 30px; display: flex; align-items: flex-end; gap: 3px; flex: none; }
-.waterloo-bars i { width: 9px; display: block; background: #111; }
-.waterloo-bars i:nth-child(1) { height: 17px; }
-.waterloo-bars i:nth-child(2) { height: 23px; background: #f2c300; }
-.waterloo-bars i:nth-child(3) { height: 29px; }
-.uoft-seal { width: 32px; height: 32px; display: grid; place-items: center; flex: none; border: 2px solid #183b61; border-radius: 50%; color: #183b61; font-family: Georgia, serif; font-size: 17px; font-weight: 700; }
 
 .company-builder { padding: 112px 0; background: #fff; }
 .company-section-heading > span, .company-founders-copy > span, .company-kicker, .company-final-inner > div > span { display: block; margin-bottom: 16px; color: var(--company-blue); font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; }
