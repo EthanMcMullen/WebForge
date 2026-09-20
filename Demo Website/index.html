@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17191c">
+  <meta name="description" content="A live UBC CPSC course ratings dashboard powered by WebForge.">
+  <title>Course Draft Board &mdash; UBC course dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Course navigation">
+      <a class="brand" href="/" aria-label="Course Draft Board home"><span class="brand-mark">&#9672;</span><span>COURSE<span class="brand-accent">DRAFT</span></span></a>
+      <div class="sidebar-heading"><span>COURSES</span><strong id="sidebar-count">00</strong></div>
+      <div id="course-list" class="course-list"><p class="sidebar-empty">Courses appear here when data is connected.</p></div>
+      <div class="sidebar-bottom"><span class="connection-dot"></span><div><strong id="connection-label">WAITING FOR DATA</strong><small>WEBFORGE FEED</small></div></div>
+    </aside>
+
+    <div class="main-shell">
+      <header class="topbar"><span class="breadcrumb">DASHBOARD <span>/</span> COURSE DRAFT BOARD</span><nav class="view-tabs" aria-label="Dashboard views"><button id="compare-tab" class="view-tab active" type="button" aria-pressed="true">COMPARE</button><button id="course-tab" class="view-tab" type="button" aria-pressed="false">COURSE VIEW</button></nav><span class="topbar-right"><span class="topbar-signal"></span> UNIVERSITY OF BRITISH COLUMBIA</span></header>
+      <main>
+        <section class="page-heading" aria-labelledby="page-title"><div><span class="eyebrow">CPSC COURSE RATINGS &mdash; LIVE DATA</span><h1 id="page-title">Draft your course<span>.</span></h1></div><span id="job-status" class="status-pill">AWAITING DATA</span></section>
+
+        <section class="overview" aria-label="Dashboard summary">
+          <article class="summary-card"><span class="summary-label">COURSES TRACKED</span><strong id="total-courses">0</strong><small>UBC Computer Science</small></article>
+          <article class="summary-card"><span class="summary-label">AVG. USEFULNESS</span><strong id="average-usefulness">&mdash;</strong><small>Rating score out of 5</small></article>
+          <article class="summary-card"><span class="summary-label">TOTAL REVIEWS</span><strong id="total-reviews">&mdash;</strong><small>Across connected courses</small></article>
+        </section>
+
+        <section id="empty-state" class="empty-state" aria-labelledby="empty-title">
+          <div class="empty-symbol" aria-hidden="true">&#9672;</div>
+          <span class="empty-kicker">AWAITING WEBFORGE RECORDS</span>
+          <h2 id="empty-title">No data to show</h2>
+          <p>Connect your UBC WebForge records endpoint to reveal course ratings and review counts.</p>
+          <span class="empty-foot">THIS DASHBOARD UPDATES AUTOMATICALLY</span>
+        </section>
+
+        <div id="dashboard" hidden>
+          <section class="course-header"><div><span class="section-label">SELECTED COURSE &mdash; <span id="course-position">01 / 03</span></span><div class="course-title"><h2 id="selected-code">&mdash;</h2><p id="selected-name">&mdash;</p></div></div><span class="course-badge">LIVE COURSE PROFILE</span></section>
+          <section class="metric-grid" aria-label="Course ratings">
+            <article class="metric-card" id="easiness-card"><div class="metric-top"><span>EASINESS</span><span class="metric-index">01 / 03</span></div><div id="easiness-pie" class="pie" role="img" aria-label="Easiness data unavailable"><svg viewBox="0 0 220 220" aria-hidden="true"><circle class="pie-track" cx="110" cy="110" r="82"/><circle id="easiness-arc" class="pie-arc" cx="110" cy="110" r="82"/></svg><div class="pie-center"><strong id="easiness-value">&mdash;</strong><small>OUT OF 5</small></div></div><p class="metric-description">Average <strong>easiness</strong> rating</p></article>
+            <article class="metric-card" id="interest-card"><div class="metric-top"><span>INTEREST</span><span class="metric-index">02 / 03</span></div><div id="interest-pie" class="pie" role="img" aria-label="Interest data unavailable"><svg viewBox="0 0 220 220" aria-hidden="true"><circle class="pie-track" cx="110" cy="110" r="82"/><circle id="interest-arc" class="pie-arc speed-arc" cx="110" cy="110" r="82"/></svg><div class="pie-center"><strong id="interest-value">&mdash;</strong><small>OUT OF 5</small></div></div><p class="metric-description">Average <strong>interest</strong> rating</p></article>
+            <article class="metric-card" id="usefulness-card"><div class="metric-top"><span>USEFULNESS</span><span class="metric-index">03 / 03</span></div><div id="usefulness-pie" class="pie" role="img" aria-label="Usefulness data unavailable"><svg viewBox="0 0 220 220" aria-hidden="true"><circle class="pie-track" cx="110" cy="110" r="82"/><circle id="usefulness-arc" class="pie-arc" cx="110" cy="110" r="82"/></svg><div class="pie-center"><strong id="usefulness-value">&mdash;</strong><small>OUT OF 5</small></div></div><p class="metric-description">Average <strong>usefulness</strong> rating</p></article>
+          </section>
+          <section class="details-row">
+            <article class="info-card description-card"><span class="section-label">RATING SNAPSHOT</span><h3>Course scores</h3><p id="rating-summary">&mdash;</p></article>
+            <article class="info-card reviews-card"><span class="section-label">STUDENT FEEDBACK</span><h3>Number of reviews</h3><strong id="review-count">&mdash;</strong></article>
+            <section class="sources-card"><div><span class="section-label">PROVENANCE</span><h3>Sources</h3></div><div id="source-links" class="source-links"></div></section>
+          </section>
+        </div>
+        <section id="comparison" class="comparison" aria-label="Compare UBC courses" hidden>
+          <div class="comparison-intro"><div><span class="section-label">SIDE BY SIDE</span><h2>Compare the classes<span>.</span></h2></div><p>Ratings and review volume for all three CPSC courses. Select a bar to inspect a course.</p></div>
+          <div id="comparison-grid" class="comparison-grid"></div>
+        </section>
+        <p id="load-error" class="load-error" role="status" aria-live="polite"></p>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
