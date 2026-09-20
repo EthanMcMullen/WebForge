@@ -7,7 +7,7 @@ import { validatePriceSource } from "../record-quality";
 
 export interface ExtractionProvider {
   discover(query: string, options: { excludedDomains: string[]; limit: number }): Promise<SourceCandidate[]>;
-  extract(url: string, schema: ApiRecordSchema, subjectHint?: string, userRequest?: string, combineSources?: boolean): Promise<{ data: ApiRecordData; identity: string | null; sourceTitle?: string | null; canonicalUrl?: string | null }>;
+  extract(url: string, schema: ApiRecordSchema, subjectHint?: string, userRequest?: string, combineSources?: boolean): Promise<{ data: ApiRecordData; identity: string | null; sourceTitle?: string | null; canonicalUrl?: string | null; viaVision?: boolean }>;
 }
 function client(): Firecrawl {
   if (!process.env.FIRECRAWL_API_KEY) throw new Error("FIRECRAWL_API_KEY is required to run an API job.");

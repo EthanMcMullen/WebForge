@@ -59,11 +59,14 @@ export function classifySourceError(error: unknown): SourceFailureCode {
   if (/do not support this site|unsupported.site|site.not.supported/.test(message)) return "UNSUPPORTED_SITE";
   if (status === 403 || /login.required|access.denied|captcha|blocked.by/.test(message)) return "ACCESS_BLOCKED";
   if (/no structured json|no usable fields|no new fields for the combined record/.test(message)) return "NO_STRUCTURED_JSON";
+  if (/vision fallback.*(no usable fields|no data|no page screenshot)/.test(message)) return "NO_STRUCTURED_JSON";
   if (/price was not supported by source text/.test(message)) return "UNVERIFIED_PRICE";
+  if (/vision fallback price was not supported/.test(message)) return "UNVERIFIED_PRICE";
   if (/required price is missing|amazon price needs a product detail page/.test(message)) return "MISSING_REQUIRED_FIELD";
   if (/amazon product (?:asin|variant) does not match|source identity conflicts/.test(message)) return "SOURCE_IDENTITY_MISMATCH";
   if (/record does not match the request/.test(message)) return "IRRELEVANT_RECORD";
   if (/invalid value for|incomplete record/.test(message)) return "SCHEMA_MISMATCH";
+  if (/vision fallback.*(invalid value|incomplete record)/.test(message)) return "SCHEMA_MISMATCH";
   if (status === 404 || (status !== undefined && status >= 500) || /source returned http/.test(message)) return "SOURCE_HTTP_ERROR";
   return "TRANSIENT";
 }

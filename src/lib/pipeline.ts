@@ -4,6 +4,7 @@ import { countApiRecords, finishRefreshSchedule, getApiJob, getLatestRun, isRunC
 import { cleanSourceUrls, type CreateApiJobData } from "./validation";
 import type { ApiJob, ApiRecord, RunSummary, SourceCandidate, SourceFailureCode } from "./types";
 import { firecrawlProvider, type ExtractionProvider } from "./providers/firecrawl";
+import { withVisionFallback } from "./providers/vision";
 import { DEFAULT_BLOCKED_DOMAINS, classifySourceError, domainOf, filterCandidates, isBlockedDomain, isFatalFailure } from "./source-support";
 import { RUN_LIMITS, canRecover, canSearch, plannedSearchQueries, runLimitsForSearchDepth, withinDeadline } from "./run-budget";
 import { recoverSearchQuery, validateRecoveryDecision, type RecoveryInput, type RecoveryDecision } from "./source-recovery";
@@ -101,6 +102,19 @@ export async function runApiJob(
   const combined = job.combineSources ? createCombinedRecord(job.schema) : null;
   let combinedIdentity: string | null = null;
   let completeCombinedRun = false;
+  // Vision fallback budget: at most `limits.visionFallbacks` screenshot reads
+  // per run. The extra screenshot scrape is counted in `scrapeCalls`.
+  let visionRemaining = limits.visionFallbacks;
+  let visionRecoveries = 0;
+  const extracting = withVisionFallback(provider, {
+    requestAttempt: () => {
+      if (visionRemaining <= 0) return false;
+      if (summary.scrapeCalls >= limits.scrapes) return false;
+      if (!withinDeadline(startMs)) return false;
+      visionRemaining--;
+      return true;
+    },
+  });
 
   const search = async (query: string): Promise<SourceCandidate[]> => {
     if (await cancelled()) { stopReason = "Run cancelled."; return []; }
@@ -185,8 +199,13 @@ export async function runApiJob(
         await setStatus(job, "scraping");
         try {
           await setStatus(job, "extracting");
-          const extracted = await provider.extract(candidate.url, job.schema, candidate.title, job.userRequest, Boolean(combined));
+          const extracted = await extracting.extract(candidate.url, job.schema, candidate.title, job.userRequest, Boolean(combined));
           const { data, identity } = extracted;
+          if (extracted.viaVision) {
+            visionRecoveries++;
+            summary.scrapeCalls++;
+            await saveRunSummary(summary);
+          }
           if (await cancelled()) { stopReason = "Run cancelled."; break; }
           validateRecordQuality({ request: job.userRequest, schema: job.schema, data,
             sourceUrl: candidate.url, sourceTitle: extracted.sourceTitle, canonicalUrl: extracted.canonicalUrl,
@@ -328,6 +347,9 @@ export async function runApiJob(
     }
     if (await cancelled()) stopReason = "Run cancelled.";
     const missing = missingPlannedQueries(planned, completedQueries);
+    if (visionRecoveries > 0 && stopReason) {
+      stopReason = `${stopReason} Vision fallback recovered ${visionRecoveries} record${visionRecoveries === 1 ? "" : "s"} from page screenshots.`;
+    }
     if (automatic && summary.savedRecords > 0 && missing.length) {
       const coverage = `No record was updated for ${missing.length} of ${planned.length} planned searches: ${missing.map((query) => query.slice(0, 80)).join("; ")}.`;
       stopReason = stopReason ? `${stopReason} ${coverage}` : coverage;

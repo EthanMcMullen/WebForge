@@ -5,6 +5,7 @@ export interface RunLimits {
   plannedSearches: number;
   scrapes: number;
   recoveryCalls: number;
+  visionFallbacks: number;
   consecutiveFailures: number;
   totalFailures: number;
   candidates: number;
@@ -16,6 +17,7 @@ export const RUN_LIMITS: RunLimits = {
   plannedSearches: 5,
   scrapes: 12,
   recoveryCalls: 1,
+  visionFallbacks: 2,
   consecutiveFailures: 5,
   totalFailures: 5,
   candidates: 12,

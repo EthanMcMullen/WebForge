@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiJobResponse, SearchDepth, SourceStrategyType } from "@/lib/types";
 
-type Config = { planner_ready: boolean; extraction_ready: boolean; database_ready: boolean; missing: string[] };
+type Config = { planner_ready: boolean; extraction_ready: boolean; database_ready: boolean; vision_ready?: boolean; missing: string[] };
 type ApiRecordResponse = { id: string; job_id: string; source_url: string; source_urls: string[];
   field_sources: Record<string, string>; data: Record<string, string | number | boolean | null>; extracted_at: string };
 type RunHistory = { id: string; startedAt: string; finishedAt: string | null; trigger: "manual" | "scheduled"; outcome: string; savedRecords: number; searchCalls: number; scrapeCalls: number; stopReason: string | null; cancelRequested: boolean };
@@ -414,6 +414,7 @@ export function Workspace() {
           <div><span>OpenAI planner</span><b className={config?.planner_ready ? "good" : "bad"}>{config?.planner_ready ? "Connected" : "Needs key"}</b></div>
           <div><span>Firecrawl extraction</span><b className={config?.extraction_ready ? "good" : "bad"}>{config?.extraction_ready ? "Connected" : "Needs key"}</b></div>
           <div><span>MongoDB Atlas</span><b className={config?.database_ready ? "good" : "bad"}>{config?.database_ready ? "Configured" : "Needs URI"}</b></div>
+          <div><span>Vision fallback</span><b className={config?.vision_ready ? "good" : "bad"}>{config ? (config.vision_ready ? "On" : "Off") : "Checking"}</b></div>
           {accessRequired && <button className="ghost-button" onClick={() => void lockWorkspace()}>Lock workspace</button>}
           <button className="ghost-button" onClick={() => setSettingsOpen(false)}>Close</button>
         </div>}
